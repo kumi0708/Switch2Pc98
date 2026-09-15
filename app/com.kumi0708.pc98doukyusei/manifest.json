@@ -1,0 +1,32 @@
+{
+    "id": "com.kumi0708.pc98doukyusei",
+    "name": "PC-98 同級生",
+    "version": "1.0.0",
+    "description": "<p>ブラウザ実装の NEC PC-9801 エミュレータ (pc98EmulatorWeb) で「同級生」(1992, elf) を動かします。</p><p>Lスティックでマウス移動(Rスティックは微調整)、Aで左クリック、Bで右クリック。十字キー左右で FDD2、上下で FDD1 のディスクを交換。Y でソフトウェアキーボード(タッチ操作用)。</p>",
+    "logo": "assets/appbanner.jpg",
+    "entry": "index.html",
+    "categories": [
+        "Games"
+    ],
+    "permissions": [],
+    "compatibility": [
+        "switch",
+        "web"
+    ],
+    "allowed_origins": [],
+    "developer": "kumi0708",
+    "license": "MIT",
+    "exitGame": "PLUS",
+    "fullscreen": true,
+    "hideMouseDocked": true,
+    "hideMouseUndocked": true,
+    "freshProcessOnExit": false,
+    "publishedAt": "2026-09-15T00:00:00Z",
+    "summary": "PC-98 エミュレータで「同級生」をプレイ",
+    "genre": [
+        "Adventure"
+    ],
+    "features": [
+        "Gamepad"
+    ]
+}

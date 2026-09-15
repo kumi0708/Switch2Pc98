@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280, initial-scale=1">
+  <title>PC-98 同級生</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="screen-container">
+      <canvas id="screen" width="640" height="400"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="overlay-msg" id="overlay-msg">読み込み中...</div>
+      </div>
+      <div id="toast" class="toast hidden"></div>
+      <div id="vkbd" class="vkbd hidden"></div>
+    </div>
+
+    <div id="panel">
+      <div class="panel-title">PC-98<br>同級生</div>
+
+      <div class="drive">
+        <div class="drive-head">FDD1 <span id="fdd1-label" class="drive-label">-</span></div>
+        <div class="disk-grid" id="fdd1-grid"></div>
+      </div>
+
+      <div class="drive">
+        <div class="drive-head">FDD2 <span id="fdd2-label" class="drive-label">-</span></div>
+        <div class="disk-grid" id="fdd2-grid"></div>
+      </div>
+
+      <div class="panel-buttons">
+        <button id="btn-kbd" class="btn">キーボード</button>
+        <button id="btn-pause" class="btn">一時停止</button>
+        <button id="btn-reset" class="btn">リセット</button>
+      </div>
+
+      <div class="help">
+        <div>Lスティック: マウス</div>
+        <div>Rスティック: 微調整</div>
+        <div>A: 左クリック</div>
+        <div>B: 右クリック</div>
+        <div>十字←→: FDD2交換</div>
+        <div>十字↑↓: FDD1交換</div>
+        <div>Y: キーボード</div>
+        <div>+: 終了</div>
+      </div>
+
+      <div id="status-bar">
+        <span id="status-text">待機中</span>
+        <span id="cpu-speed"></span>
+        <span id="fdd-activity"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/mem.js"></script>
+  <script src="js/io.js"></script>
+  <script src="js/cpu.js"></script>
+  <script src="js/pic.js"></script>
+  <script src="js/pit.js"></script>
+  <script src="js/fdi.js"></script>
+  <script src="js/fdc.js"></script>
+  <script src="js/video.js"></script>
+  <script src="js/kbd.js"></script>
+  <script src="js/mouse.js"></script>
+  <script src="js/bios.js"></script>
+  <script src="js/pc98.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

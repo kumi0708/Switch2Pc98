@@ -1,0 +1,497 @@
+'use strict';
+
+// PC-98 同級生 — Brewser (Nintendo Switch) front-end for pc98EmulatorWeb.
+// Disks are bundled under disks/ (renamed *.bin so the Brewser resource
+// loader serves them), the CG ROM is pre-rendered in cgrom.bin.
+
+const DISKS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+const BOOT_FDD1 = 'a';
+const BOOT_FDD2 = 'b';
+
+const SCREEN_W = 640, SCREEN_H = 400;
+
+// ---- UI elements ----
+const canvas     = document.getElementById('screen');
+const overlay    = document.getElementById('overlay');
+const overlayMsg = document.getElementById('overlay-msg');
+const toastEl    = document.getElementById('toast');
+const vkbdEl     = document.getElementById('vkbd');
+const btnKbd     = document.getElementById('btn-kbd');
+const btnPause   = document.getElementById('btn-pause');
+const btnReset   = document.getElementById('btn-reset');
+const statusText = document.getElementById('status-text');
+const cpuSpeed   = document.getElementById('cpu-speed');
+const fddAct     = document.getElementById('fdd-activity');
+const driveLabel = [document.getElementById('fdd1-label'), document.getElementById('fdd2-label')];
+const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementById('fdd2-grid')];
+
+let pc98 = null;
+let paused = false;
+const diskCache = {};          // letter -> FDI
+const mounted = [null, null];  // letter per drive
+let toastTimer = null;
+
+function setStatus(msg) { statusText.textContent = msg; }
+
+function toast(msg, ms = 1800) {
+  toastEl.textContent = msg;
+  toastEl.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.add('hidden'), ms);
+}
+
+// ---- resource loading ----
+async function fetchBytes(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return await res.arrayBuffer();
+}
+
+async function loadDisk(letter) {
+  if (diskCache[letter]) return diskCache[letter];
+  const buf = await fetchBytes(`disks/disk_${letter}.bin`);
+  const fdi = new FDI(buf);
+  if (!fdi.isValid()) throw new Error(`disk ${letter}: invalid FDI`);
+  diskCache[letter] = fdi;
+  return fdi;
+}
+
+// ---- disk panel ----
+function diskButton(drive, letter) {
+  const b = document.createElement('button');
+  b.className = 'disk-btn';
+  b.textContent = letter.toUpperCase();
+  b.dataset.drive = String(drive);
+  b.dataset.letter = letter;
+  b.addEventListener('click', () => { void mountDisk(drive, letter); });
+  return b;
+}
+
+function buildDiskPanel() {
+  for (let d = 0; d < 2; d++) {
+    for (const l of DISKS) driveGrid[d].appendChild(diskButton(d, l));
+  }
+}
+
+function refreshDiskPanel() {
+  for (let d = 0; d < 2; d++) {
+    driveLabel[d].textContent = mounted[d] ? mounted[d].toUpperCase() : '-';
+    const btns = driveGrid[d].children;
+    for (let i = 0; i < btns.length; i++) {
+      const b = btns[i];
+      b.classList.toggle('active', b.dataset.letter === mounted[d]);
+    }
+  }
+}
+
+async function mountDisk(drive, letter) {
+  if (mounted[drive] === letter) return;
+  const btn = driveGrid[drive].querySelector(`[data-letter="${letter}"]`);
+  try {
+    if (!diskCache[letter]) {
+      if (btn) btn.classList.add('loading');
+      setStatus(`ディスク${letter.toUpperCase()} 読込中`);
+      await loadDisk(letter);
+    }
+  } catch (err) {
+    setStatus(`読込エラー: ${err.message}`);
+    toast(`ディスク${letter.toUpperCase()} の読み込みに失敗`);
+    if (btn) btn.classList.remove('loading');
+    return;
+  }
+  if (btn) btn.classList.remove('loading');
+
+  // A floppy can only be in one drive at a time.
+  const other = drive ^ 1;
+  if (mounted[other] === letter) {
+    mounted[other] = null;
+    if (pc98) pc98.fdc.mount(other, null);
+  }
+  mounted[drive] = letter;
+  if (pc98) pc98.mountDisk(drive, diskCache[letter]);
+  refreshDiskPanel();
+  setStatus(`FDD${drive + 1}: ディスク${letter.toUpperCase()}`);
+  toast(`FDD${drive + 1} ← ディスク ${letter.toUpperCase()}`);
+}
+
+function cycleDisk(drive, dir) {
+  const cur = mounted[drive] ? DISKS.indexOf(mounted[drive]) : -1;
+  const next = (cur + dir + DISKS.length) % DISKS.length;
+  void mountDisk(drive, DISKS[next]);
+}
+
+// ---- mouse delta drip ----
+// The bus mouse counters are 8-bit and the emulator clamps them to +-127 per
+// poll, so a big pointer jump (absolute pointer / touch) would be truncated.
+// Queue the deltas and hand out at most MOUSE_STEP mickeys per HC latch
+// (i.e. per game poll), so the game cursor always catches up.
+const MOUSE_STEP = 100;
+function installMouseDrip(mouse) {
+  let px = 0, py = 0;
+  mouse.move = (dx, dy) => { px += dx; py += dy; };
+  const origEdge = mouse._hcEdge.bind(mouse);
+  mouse._hcEdge = (old) => {
+    if ((mouse._portC & 0x80) && !(old & 0x80)) {
+      const sx = Math.max(-MOUSE_STEP, Math.min(MOUSE_STEP, px));
+      const sy = Math.max(-MOUSE_STEP, Math.min(MOUSE_STEP, py));
+      mouse._dx = sx; mouse._dy = sy;
+      px -= sx; py -= sy;
+    }
+    origEdge(old);
+  };
+  const origReset = mouse.reset.bind(mouse);
+  mouse.reset = () => { px = 0; py = 0; origReset(); };
+  mouseDrained = () => px === 0 && py === 0;
+}
+let mouseDrained = () => true;
+
+// ---- emulator lifecycle ----
+function bootMachine() {
+  if (pc98) pc98.stop();
+  pc98 = new PC98(canvas);
+  installMouseDrip(pc98.mouse);
+  pc98.onFPS = (fps) => { cpuSpeed.textContent = `${fps} FPS`; };
+  pc98._speedMultiplier = 1.0;
+  for (let d = 0; d < 2; d++) {
+    if (mounted[d]) pc98.mountDisk(d, diskCache[mounted[d]]);
+  }
+  pc98.reset();
+  pc98.start();
+  paused = false;
+  btnPause.textContent = '一時停止';
+  overlay.classList.add('hidden');
+  setStatus('実行中');
+}
+
+btnReset.addEventListener('click', () => {
+  if (!pc98) return;
+  bootMachine();
+  setStatus('リセット');
+});
+
+btnPause.addEventListener('click', () => {
+  if (!pc98) return;
+  if (paused) {
+    pc98.start();
+    paused = false;
+    btnPause.textContent = '一時停止';
+    setStatus('実行中');
+  } else {
+    pc98.stop();
+    paused = true;
+    btnPause.textContent = '再開';
+    setStatus('一時停止中');
+  }
+});
+
+// ---- mouse (pointer / software cursor on Switch) ----
+// Deltas are derived from absolute canvas coordinates, scaled to 640x400.
+let mouseLastX = null, mouseLastY = null, mouseAccX = 0, mouseAccY = 0;
+let touchUntil = 0; // ignore compat mouse events shortly after touch
+
+function canvasPos(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return [
+    (clientX - rect.left) * (SCREEN_W / rect.width),
+    (clientY - rect.top) * (SCREEN_H / rect.height),
+  ];
+}
+
+function feedMove(x, y) {
+  if (mouseLastX !== null) {
+    mouseAccX += x - mouseLastX;
+    mouseAccY += y - mouseLastY;
+    const dx = Math.trunc(mouseAccX);
+    const dy = Math.trunc(mouseAccY);
+    if (dx !== 0 || dy !== 0) {
+      if (pc98 && pc98.mouse) pc98.mouse.move(dx, dy);
+      mouseAccX -= dx;
+      mouseAccY -= dy;
+    }
+  }
+  mouseLastX = x;
+  mouseLastY = y;
+}
+
+function resetMoveTracking() { mouseLastX = null; mouseLastY = null; }
+
+canvas.addEventListener('mousemove', (e) => {
+  if (Date.now() < touchUntil) return;
+  const [x, y] = canvasPos(e.clientX, e.clientY);
+  feedMove(x, y);
+});
+canvas.addEventListener('mouseleave', resetMoveTracking);
+// Button state machine. Two timing rules:
+//  * a press is only delivered once the queued movement has drained
+//    (mouseDrained()), so a "jump + click" (touch tap / synthetic click)
+//    lands where the pointer went, not where the game cursor used to be;
+//  * a press is held for at least MIN_PRESS_MS before the release is
+//    delivered, since the game samples the mouse from a ~120 Hz interrupt.
+// A tap released before its press could be delivered still produces a
+// full press/release pair.
+const MIN_PRESS_MS = 70;
+const MAX_DRAIN_WAIT_MS = 250; // give up waiting if the game isn't polling
+const btnState = [
+  { wantDown: false, pending: false, wantSince: 0, down: false, downAt: 0 },
+  { wantDown: false, pending: false, wantSince: 0, down: false, downAt: 0 },
+];
+function pressButton(which) {
+  const st = btnState[which];
+  st.wantDown = true;
+  if (!st.down && !st.pending) { st.pending = true; st.wantSince = Date.now(); }
+}
+function releaseButton(which) { btnState[which].wantDown = false; }
+function serviceButtons() {
+  if (!pc98 || !pc98.mouse) return;
+  const now = Date.now();
+  for (let w = 0; w < 2; w++) {
+    const st = btnState[w];
+    if (st.pending && !st.down) {
+      if (!mouseDrained() && now - st.wantSince < MAX_DRAIN_WAIT_MS) continue;
+      st.pending = false;
+      st.down = true; st.downAt = now;
+      pc98.mouse.button(w, true);
+    } else if (st.down && !st.wantDown) {
+      if (now - st.downAt < MIN_PRESS_MS) continue;
+      st.down = false;
+      pc98.mouse.button(w, false);
+    }
+  }
+}
+setInterval(serviceButtons, 4);
+
+canvas.addEventListener('mousedown', (e) => {
+  if (Date.now() < touchUntil) return;
+  e.preventDefault();
+  pressButton(e.button === 2 ? 1 : 0);
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (Date.now() < touchUntil) return;
+  releaseButton(e.button === 2 ? 1 : 0);
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Touch (handheld): drag = move, tap = left click, two-finger tap = right click.
+let touchStartT = 0, touchMoved = 0, touchFingers = 0;
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  touchFingers = Math.max(touchFingers, e.touches.length);
+  if (e.touches.length === 1) {
+    touchStartT = Date.now();
+    touchMoved = 0;
+    resetMoveTracking();
+    const [x, y] = canvasPos(e.touches[0].clientX, e.touches[0].clientY);
+    feedMove(x, y);
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  if (e.touches.length !== 1) return;
+  const [x, y] = canvasPos(e.touches[0].clientX, e.touches[0].clientY);
+  if (mouseLastX !== null) touchMoved += Math.abs(x - mouseLastX) + Math.abs(y - mouseLastY);
+  feedMove(x, y);
+}, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  if (e.touches.length > 0) return; // wait for last finger
+  const fingers = touchFingers;
+  touchFingers = 0;
+  resetMoveTracking();
+  const dur = Date.now() - touchStartT;
+  if (dur < 400 && touchMoved < 12) {
+    const which = fingers >= 2 ? 1 : 0;
+    pressButton(which);
+    releaseButton(which);
+  }
+}, { passive: false });
+canvas.addEventListener('touchcancel', () => { touchFingers = 0; resetMoveTracking(); });
+
+// ---- physical keyboard (USB keyboard on Switch / PC) ----
+document.addEventListener('keydown', (e) => {
+  if (!pc98) return;
+  e.preventDefault();
+  pc98.onKeyDown(e);
+});
+document.addEventListener('keyup', (e) => {
+  if (!pc98) return;
+  pc98.onKeyUp(e);
+});
+
+// ---- virtual keyboard (clickable with cursor / touch) ----
+// [label, code, key]
+const VK_ROWS = [
+  [['ESC', 'Escape', 'Escape'], ['1', 'Digit1', '1'], ['2', 'Digit2', '2'], ['3', 'Digit3', '3'], ['4', 'Digit4', '4'],
+   ['5', 'Digit5', '5'], ['6', 'Digit6', '6'], ['7', 'Digit7', '7'], ['8', 'Digit8', '8'], ['9', 'Digit9', '9'],
+   ['0', 'Digit0', '0'], ['-', 'Minus', '-'], ['BS', 'Backspace', 'Backspace']],
+  [['Q', 'KeyQ', 'q'], ['W', 'KeyW', 'w'], ['E', 'KeyE', 'e'], ['R', 'KeyR', 'r'], ['T', 'KeyT', 't'],
+   ['Y', 'KeyY', 'y'], ['U', 'KeyU', 'u'], ['I', 'KeyI', 'i'], ['O', 'KeyO', 'o'], ['P', 'KeyP', 'p'],
+   ['↑', 'ArrowUp', 'ArrowUp'], ['F1', 'F1', 'F1'], ['F2', 'F2', 'F2']],
+  [['A', 'KeyA', 'a'], ['S', 'KeyS', 's'], ['D', 'KeyD', 'd'], ['F', 'KeyF', 'f'], ['G', 'KeyG', 'g'],
+   ['H', 'KeyH', 'h'], ['J', 'KeyJ', 'j'], ['K', 'KeyK', 'k'], ['L', 'KeyL', 'l'], ['←', 'ArrowLeft', 'ArrowLeft'],
+   ['↓', 'ArrowDown', 'ArrowDown'], ['→', 'ArrowRight', 'ArrowRight'], ['F3', 'F3', 'F3']],
+  [['Z', 'KeyZ', 'z'], ['X', 'KeyX', 'x'], ['C', 'KeyC', 'c'], ['V', 'KeyV', 'v'], ['B', 'KeyB', 'b'],
+   ['N', 'KeyN', 'n'], ['M', 'KeyM', 'm'], ['SPACE', 'Space', ' ', 'xwide'], ['ENTER', 'Enter', 'Enter', 'wide'], ['閉じる', null, null, 'wide']],
+];
+
+function buildVirtualKeyboard() {
+  for (const row of VK_ROWS) {
+    const r = document.createElement('div');
+    r.className = 'vk-row';
+    for (const [label, code, key, cls] of row) {
+      const b = document.createElement('button');
+      b.className = 'vk' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      if (code === null) {
+        b.addEventListener('click', () => toggleVirtualKeyboard(false));
+      } else {
+        const press = (ev) => {
+          ev.preventDefault();
+          if (!pc98) return;
+          b.classList.add('down');
+          pc98.onKeyDown({ code, key });
+        };
+        const release = () => {
+          if (!b.classList.contains('down')) return;
+          b.classList.remove('down');
+          if (pc98) pc98.onKeyUp({ code, key });
+        };
+        b.addEventListener('mousedown', press);
+        b.addEventListener('mouseup', release);
+        b.addEventListener('mouseleave', release);
+        b.addEventListener('touchstart', press, { passive: false });
+        b.addEventListener('touchend', (ev) => { ev.preventDefault(); release(); }, { passive: false });
+      }
+      r.appendChild(b);
+    }
+    vkbdEl.appendChild(r);
+  }
+}
+
+function toggleVirtualKeyboard(show) {
+  const visible = !vkbdEl.classList.contains('hidden');
+  const next = show === undefined ? !visible : show;
+  vkbdEl.classList.toggle('hidden', !next);
+  btnKbd.classList.toggle('active', next);
+}
+btnKbd.addEventListener('click', () => toggleVirtualKeyboard());
+
+// ---- gamepad (Switch Joy-Con / Pro Controller, standard mapping) ----
+// The manifest hides Brewser's software mouse layer, so the game's own arrow
+// cursor is the only pointer on screen (as on a real PC-98) and the pad
+// reaches the page through the Gamepad API unfiltered:
+//   Left stick          = mouse (speed follows deflection)
+//   Right stick         = slow / precise mouse
+//   A (0) / B (1)       = left / right mouse button
+//   D-pad LEFT/RIGHT    = previous / next disk in FDD2
+//   D-pad UP/DOWN       = previous / next disk in FDD1
+//   Y (3)               = toggle virtual keyboard
+// L / R / ZL / ZR / X / -  are left to the shell (back, home, exit, ...).
+const GP_A = 0, GP_B = 1, GP_Y = 3;
+const GP_UP = 12, GP_DOWN = 13, GP_LEFT = 14, GP_RIGHT = 15;
+const STICK_DEADZONE = 0.18;
+const STICK_MAX_PX   = 9;    // px per poll tick at full deflection (left stick)
+const STICK_FINE_PX  = 2;    // right stick
+const GP_POLL_MS     = 16;
+const gpPrev = {};
+let stickAccX = 0, stickAccY = 0;
+
+function stickDelta(ax, ay, maxPx) {
+  const mag = Math.hypot(ax, ay);
+  if (mag < STICK_DEADZONE) return [0, 0];
+  const t = Math.min(1, (mag - STICK_DEADZONE) / (1 - STICK_DEADZONE));
+  const speed = t * t * maxPx;
+  return [ax / mag * speed, ay / mag * speed];
+}
+
+function pollGamepads() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : null;
+  if (!pads) return;
+  let mx = 0, my = 0;
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
+    if (!p || !p.buttons) continue;
+    const prev = gpPrev[i] || (gpPrev[i] = {});
+    const pressed = (idx) => !!(p.buttons[idx] && p.buttons[idx].pressed);
+    const edge = (idx) => { const now = pressed(idx); const was = !!prev[idx]; prev[idx] = now; return now && !was; };
+    const axes = p.axes || [];
+    const [lx, ly] = stickDelta(axes[0] || 0, axes[1] || 0, STICK_MAX_PX);
+    const [rx, ry] = stickDelta(axes[2] || 0, axes[3] || 0, STICK_FINE_PX);
+    mx += lx + rx; my += ly + ry;
+
+    const a = pressed(GP_A), b = pressed(GP_B);
+    if (a && !prev.a) pressButton(0);
+    if (!a && prev.a) releaseButton(0);
+    if (b && !prev.b) pressButton(1);
+    if (!b && prev.b) releaseButton(1);
+    prev.a = a; prev.b = b;
+
+    if (edge(GP_LEFT))  cycleDisk(1, -1);
+    if (edge(GP_RIGHT)) cycleDisk(1, +1);
+    if (edge(GP_UP))    cycleDisk(0, -1);
+    if (edge(GP_DOWN))  cycleDisk(0, +1);
+    if (edge(GP_Y))     toggleVirtualKeyboard();
+  }
+  if (mx !== 0 || my !== 0) {
+    stickAccX += mx; stickAccY += my;
+    const dx = Math.trunc(stickAccX), dy = Math.trunc(stickAccY);
+    if ((dx !== 0 || dy !== 0) && pc98 && pc98.mouse) {
+      pc98.mouse.move(dx, dy);
+      stickAccX -= dx; stickAccY -= dy;
+    }
+  }
+}
+setInterval(pollGamepads, GP_POLL_MS);
+
+// ---- rAF watchdog ----
+// PC98._loop reschedules itself with requestAnimationFrame. If the host
+// stops delivering animation frames (hidden/offscreen surface) the machine
+// would freeze; drive the loop from a timer while that is the case.
+setInterval(() => {
+  if (!pc98 || !pc98._running || paused) return;
+  if (performance.now() - pc98._lastTime < 120) return;
+  if (pc98._rafId) { cancelAnimationFrame(pc98._rafId); pc98._rafId = null; }
+  pc98._loop();
+}, 16);
+
+// ---- status indicator ----
+setInterval(() => {
+  if (!pc98) return;
+  const now = Date.now();
+  const lastAct = pc98.video._fddActivity || 0;
+  fddAct.textContent = (now - lastAct < 500) ? '● FDD' : '';
+}, 100);
+
+// ---- boot ----
+async function main() {
+  buildDiskPanel();
+  buildVirtualKeyboard();
+  refreshDiskPanel();
+
+  try {
+    overlayMsg.textContent = 'フォント読み込み中...';
+    Video.cgrom = new Uint8Array(await fetchBytes('cgrom.bin'));
+  } catch (err) {
+    console.warn('cgrom.bin not loaded, falling back to canvas font:', err);
+    Video.cgrom = null;
+  }
+
+  try {
+    overlayMsg.textContent = 'ディスク読み込み中...';
+    await loadDisk(BOOT_FDD1);
+    await loadDisk(BOOT_FDD2);
+  } catch (err) {
+    overlayMsg.textContent = `ディスクの読み込みに失敗しました\n${err.message}`;
+    setStatus('エラー');
+    return;
+  }
+  mounted[0] = BOOT_FDD1;
+  mounted[1] = BOOT_FDD2;
+  refreshDiskPanel();
+
+  bootMachine();
+}
+
+main();

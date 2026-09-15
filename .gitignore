@@ -1,0 +1,18 @@
+# Cloned upstream repositories (referenced by URL in README, not vendored)
+/Brewser/
+/pc98EmulatorWeb/
+
+# Game disk images — never commit copyrighted software
+/Doukyusei/
+/app/*/disks/*.bin
+*.FDI
+*.fdi
+*.NFD
+*.nfd
+*.HDI
+*.hdi
+
+# Build output / local tooling
+/dist/
+/.claude/
+__pycache__/
