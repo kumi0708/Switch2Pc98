@@ -13,20 +13,31 @@ Brewser を知ったきっかけの記事(参考):
 Switch2Pc98/
 ├─ Brewser/            natureglass/Brewser のクローン(参照用。ビルド不要)
 ├─ pc98EmulatorWeb/    kumi0708/pc98EmulatorWeb のクローン(エミュレータ本体の元)
-├─ Doukyusei/          同級生の FDI イメージ(元ファイル)
+├─ Doukyusei/          同級生の FDI イメージ(元ファイル。リポジトリには非収録)
+├─ src/                ← 編集するのはここ
+│  ├─ index.template.html   HTML の骨組み(__STYLE__ / __SCRIPT__ を差し込む)
+│  ├─ style.css
+│  ├─ app.js               Switch 向け UI(ディスク交換・ゲームパッド・タッチ・診断ログ)
+│  └─ js/                  pc98EmulatorWeb のエミュレータコア(video.js のみ CG ROM 対応パッチ)
 ├─ app/
-│  └─ com.kumi0708.pc98doukyusei/   ← Switch の SD カードにコピーする Brewser アプリ
-│     ├─ manifest.json   Brewser 用アプリマニフェスト
-│     ├─ index.html / style.css / app.js   Switch 向け UI(ディスク交換パネル・ゲームパッド・タッチ)
-│     ├─ js/             pc98EmulatorWeb のエミュレータコア(video.js のみ CG ROM 対応パッチ)
-│     ├─ cgrom.bin       事前レンダリング済みフォント ROM(ANK 8x16 + JIS X 0208 16x16)
-│     ├─ disks/          disk_a.bin … disk_i.bin(FDI をリネームしたもの)
+│  └─ com.kumi0708.pc98doukyusei/   ← SD カードにコピーするアプリ(ビルド成果物)
+│     ├─ index.html   src/ から生成した自己完結 HTML(CSS・JS 全部インライン)
+│     ├─ manifest.json
+│     ├─ cgrom.bin    事前レンダリング済みフォント ROM(ANK 8x16 + JIS X 0208 16x16)
+│     ├─ disks/       disk_a.bin … disk_i.bin(FDI をリネームしたもの。非収録)
 │     └─ assets/appbanner.jpg
 ├─ tools/
+│  ├─ build_app.py     src/ → app/<id>/index.html にバンドル
 │  ├─ gen_cgrom.py     MS ゴシックから cgrom.bin を生成(Windows + Pillow)
 │  ├─ make_zip.sh      app/ を配布用 zip にまとめる
 │  └─ disasm16.py      デバッグ用 16bit 逆アセンブラ(capstone)
 └─ dist/               make_zip.sh の出力
+```
+
+`src/` を編集したら必ずビルドしてください:
+
+```bash
+python tools/build_app.py
 ```
 
 ## Switch へのインストール
@@ -71,18 +82,24 @@ manifest の `hideMouseDocked / hideMouseUndocked` で非表示)。実機 PC-98 
 ## PC のブラウザで試す
 
 ```bash
-cd app/com.kumi0708.pc98doukyusei
-python -m http.server 8765
+python tools/build_app.py
+python -m http.server 8765 --directory app/com.kumi0708.pc98doukyusei
 ```
 
 `http://localhost:8765/` を開く(`file://` では fetch が使えないので不可)。
 マウス・キーボード・(ブラウザが対応していれば)ゲームパッドで操作できます。
+DevTools のコンソールに `[pc98]` で始まる起動ログが出ます。
 
 ## Brewser 向けに変更した点
 
-- **ディスク読み込み**: `<input type="file">` ではなく、アプリ内の `disks/*.bin` を `fetch` で読む。
-  Brewser のリソースローダは拡張子ホワイトリスト制で `.fdi` は 404 になるため `.bin` にリネーム
-  (ファイル名に空白・括弧・日本語も不可)。
+- **単一 HTML**: Brewser の公式ドキュメントはアプリを「1 枚の自己完結 HTML」で書く前提で、
+  カタログの公開アプリもすべてその形。外部 `.js` を 12 個読む構成は、クラシックスクリプト間で
+  `class` 宣言のグローバルレキシカルスコープが共有されることに依存していて、ランタイムが
+  それを保証しているとはドキュメントに書かれていないため、`tools/build_app.py` で
+  CSS/JS をすべて `index.html` にインライン化する。
+- **ディスク読み込み**: `<input type="file">` ではなく、アプリ内の `disks/*.bin` を `fetch` で読む
+  (`fetch` が無い環境向けに XHR フォールバックあり)。Brewser のリソースローダは拡張子
+  ホワイトリスト制で `.fdi` は 404 になるため `.bin` にリネーム(ファイル名に空白・括弧・日本語も不可)。
 - **フォント**: 元実装はブラウザの日本語フォント + `TextDecoder('shift_jis')` で漢字を動的ラスタライズしていたが、
   Switch 側にその保証がないので `tools/gen_cgrom.py` で MS ゴシックから `cgrom.bin` を事前生成し、
   `js/video.js` の `_getGlyph` が `Video.cgrom` を優先して参照するようにパッチ。
@@ -91,11 +108,36 @@ python -m http.server 8765
   ゲームの 120Hz マウス割り込みポーリングで取りこぼさないようにした。
   大きなポインタ移動は 1 回のラッチあたり ±100 に分割して流す(8bit カウンタ対策)。
 - **rAF ウォッチドッグ**: requestAnimationFrame が止まった場合はタイマーからエミュレーションループを回す。
-- **レイアウト**: 1280×720 固定。左 1120×700 に画面(640×400 の 1.75 倍)、右 160px にディスク交換パネル。
+- **レイアウト**: ビューポート追従(`position:fixed; inset:0`)。画面領域に 640×400 を
+  アスペクト比維持でフィットさせ、右 160px にディスク交換パネル。
+- **診断ログ**: リリースビルドの Brewser では `console.log` は出力されず `console.error` だけが
+  ログファイルに残るので、起動の各段階を `console.error('[pc98] ...')` で記録し、
+  例外時は画面にもスタックと起動ログを表示する。
+
+## 実機でうまく動かないとき
+
+画面に何も出ない場合、どこまで進んだかで切り分けられます。
+
+| 症状 | 意味 |
+|---|---|
+| ランチャーにアプリが出ない | `manifest.json` の読み込み失敗(`id` とフォルダ名の不一致など) |
+| 右側のパネルと「起動中...」が出る | HTML/CSS は OK。JS かリソース読み込みで失敗 |
+| 赤字でエラーとスタックが出る | その内容が原因(起動ログも一緒に表示される) |
+| 画面は出るがカーソルが動かない | Gamepad の A/B が Brewser 側に消費されている |
+
+ログは SD カードの以下に出ます(`console.error` の `[pc98]` 行を探す):
+
+```
+sdmc:/switch/nxjs-debug.log
+sdmc:/switch/brewser/logs/
+```
 
 ## 再生成・パッケージ
 
 ```bash
+# src/ → app/<id>/index.html(編集後は毎回必要)
+python tools/build_app.py
+
 # フォント ROM(Windows / MS ゴシック必須)
 python tools/gen_cgrom.py app/com.kumi0708.pc98doukyusei/cgrom.bin
 

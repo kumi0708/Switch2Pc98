@@ -1,72 +1,3664 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=1280, initial-scale=1">
-  <title>PC-98 同級生</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PC-98 同級生</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #e0e0e0;
+  font-family: 'MS Gothic', 'Osaka-Mono', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fills whatever viewport the runtime gives us (1280x720 on Switch).
+   The canvas is sized in JS (layout()) so no CSS aspect-ratio support
+   is needed. */
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: row;
+  background: #000;
+}
+
+#screen-container {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#screen {
+  display: block;
+  background: #000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.overlay {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.overlay.hidden { display: none; }
+
+.overlay-msg {
+  color: #88aaff;
+  font-size: 24px;
+  text-align: center;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.overlay-msg.error { color: #ff8888; font-size: 18px; text-align: left; }
+
+.toast {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  padding: 10px 18px;
+  background: #141e3c;
+  border: 2px solid #4a6fd8;
+  color: #fff;
+  font-size: 22px;
+}
+.toast.hidden { display: none; }
+
+/* ---- side panel ---- */
+#panel {
+  width: 160px;
+  height: 100%;
+  background: #1c1c2e;
+  border-left: 2px solid #444;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-title {
+  color: #88aaff;
+  font-weight: bold;
+  font-size: 16px;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.drive-head {
+  color: #aaa;
+  font-size: 13px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+
+.drive-label { color: #ffd866; font-weight: bold; }
+
+.disk-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.disk-btn {
+  width: 44px;
+  height: 36px;
+  background: #3a3a55;
+  color: #ccc;
+  border: 1px solid #666;
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+.disk-btn.active { background: #2255aa; color: #fff; border-color: #88aaff; }
+.disk-btn.loading { background: #555522; color: #ffd866; }
+
+.panel-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.btn {
+  width: 100%;
+  height: 36px;
+  background: #3a3a55;
+  color: #ccc;
+  border: 1px solid #666;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn.active { background: #2255aa; color: #fff; }
+
+.help {
+  margin-top: auto;
+  color: #777;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#status-bar {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #888;
+  border-top: 1px solid #333;
+  padding-top: 4px;
+}
+#fdd-activity { color: #ffaa00; }
+
+/* ---- virtual keyboard overlay ---- */
+.vkbd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px;
+  background: #0a0c1e;
+  border-top: 2px solid #4a6fd8;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.vkbd.hidden { display: none; }
+
+.vk-row {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+}
+
+.vk {
+  min-width: 56px;
+  height: 46px;
+  padding: 0 8px;
+  background: #33364d;
+  color: #eee;
+  border: 1px solid #6a6f95;
+  font-size: 18px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.vk.wide { min-width: 96px; }
+.vk.xwide { min-width: 240px; }
+.vk.down { background: #2255aa; color: #fff; }
+
+</style>
 </head>
 <body>
-  <div id="app">
-    <div id="screen-container">
-      <canvas id="screen" width="640" height="400"></canvas>
-      <div id="overlay" class="overlay">
-        <div class="overlay-msg" id="overlay-msg">読み込み中...</div>
-      </div>
-      <div id="toast" class="toast hidden"></div>
-      <div id="vkbd" class="vkbd hidden"></div>
+<div id="app">
+  <div id="screen-container">
+    <canvas id="screen" width="640" height="400"></canvas>
+    <div id="overlay" class="overlay">
+      <div class="overlay-msg" id="overlay-msg">起動中...</div>
     </div>
-
-    <div id="panel">
-      <div class="panel-title">PC-98<br>同級生</div>
-
-      <div class="drive">
-        <div class="drive-head">FDD1 <span id="fdd1-label" class="drive-label">-</span></div>
-        <div class="disk-grid" id="fdd1-grid"></div>
-      </div>
-
-      <div class="drive">
-        <div class="drive-head">FDD2 <span id="fdd2-label" class="drive-label">-</span></div>
-        <div class="disk-grid" id="fdd2-grid"></div>
-      </div>
-
-      <div class="panel-buttons">
-        <button id="btn-kbd" class="btn">キーボード</button>
-        <button id="btn-pause" class="btn">一時停止</button>
-        <button id="btn-reset" class="btn">リセット</button>
-      </div>
-
-      <div class="help">
-        <div>Lスティック: マウス</div>
-        <div>Rスティック: 微調整</div>
-        <div>A: 左クリック</div>
-        <div>B: 右クリック</div>
-        <div>十字←→: FDD2交換</div>
-        <div>十字↑↓: FDD1交換</div>
-        <div>Y: キーボード</div>
-        <div>+: 終了</div>
-      </div>
-
-      <div id="status-bar">
-        <span id="status-text">待機中</span>
-        <span id="cpu-speed"></span>
-        <span id="fdd-activity"></span>
-      </div>
-    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="vkbd" class="vkbd hidden"></div>
   </div>
 
-  <script src="js/mem.js"></script>
-  <script src="js/io.js"></script>
-  <script src="js/cpu.js"></script>
-  <script src="js/pic.js"></script>
-  <script src="js/pit.js"></script>
-  <script src="js/fdi.js"></script>
-  <script src="js/fdc.js"></script>
-  <script src="js/video.js"></script>
-  <script src="js/kbd.js"></script>
-  <script src="js/mouse.js"></script>
-  <script src="js/bios.js"></script>
-  <script src="js/pc98.js"></script>
-  <script src="app.js"></script>
+  <div id="panel">
+    <div class="panel-title">PC-98<br>同級生</div>
+
+    <div class="drive">
+      <div class="drive-head">FDD1 <span id="fdd1-label" class="drive-label">-</span></div>
+      <div class="disk-grid" id="fdd1-grid"></div>
+    </div>
+
+    <div class="drive">
+      <div class="drive-head">FDD2 <span id="fdd2-label" class="drive-label">-</span></div>
+      <div class="disk-grid" id="fdd2-grid"></div>
+    </div>
+
+    <div class="panel-buttons">
+      <button id="btn-kbd" class="btn">キーボード</button>
+      <button id="btn-pause" class="btn">一時停止</button>
+      <button id="btn-reset" class="btn">リセット</button>
+    </div>
+
+    <div class="help">
+      <div>Lスティック: マウス</div>
+      <div>Rスティック: 微調整</div>
+      <div>A: 左クリック</div>
+      <div>B: 右クリック</div>
+      <div>十字←→: FDD2交換</div>
+      <div>十字↑↓: FDD1交換</div>
+      <div>Y: キーボード</div>
+      <div>+: 終了</div>
+    </div>
+
+    <div id="status-bar">
+      <span id="status-text">待機中</span>
+      <span id="cpu-speed"></span>
+      <span id="fdd-activity"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ===== js/mem.js =====
+class Memory {
+  constructor() {
+    this.data = new Uint8Array(0x100000); // 1MB
+    // BIOS data area callbacks for special memory ranges
+    this._ioHandlers = { read: {}, write: {} };
+  }
+
+  mapIO(start, end, readFn, writeFn) {
+    for (let a = start; a <= end; a += 2) {
+      if (readFn)  this._ioHandlers.read[a]  = readFn;
+      if (writeFn) this._ioHandlers.write[a] = writeFn;
+    }
+  }
+
+  read8(addr) {
+    addr &= 0xFFFFF;
+    return this.data[addr];
+  }
+
+  write8(addr, val) {
+    addr &= 0xFFFFF;
+    val &= 0xFF;
+    this.data[addr] = val;
+  }
+
+  read16(addr) {
+    addr &= 0xFFFFF;
+    return this.data[addr] | (this.data[(addr + 1) & 0xFFFFF] << 8);
+  }
+
+  write16(addr, val) {
+    addr &= 0xFFFFF;
+    this.data[addr] = val & 0xFF;
+    this.data[(addr + 1) & 0xFFFFF] = (val >> 8) & 0xFF;
+  }
+
+  // Bulk load (for ROM/disk)
+  load(addr, src, len) {
+    len = len || src.length;
+    for (let i = 0; i < len; i++) {
+      this.data[(addr + i) & 0xFFFFF] = src[i];
+    }
+  }
+
+  // Read null-terminated string
+  readStr(addr) {
+    let s = '';
+    while (true) {
+      const c = this.read8(addr++);
+      if (!c) break;
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+
+  reset() {
+    this.data.fill(0);
+  }
+}
+
+// ===== js/io.js =====
+class IO {
+  constructor() {
+    this._read  = new Array(0x10000).fill(null);
+    this._write = new Array(0x10000).fill(null);
+  }
+
+  register(port, readFn, writeFn) {
+    if (readFn)  this._read[port]  = readFn;
+    if (writeFn) this._write[port] = writeFn;
+  }
+
+  // Register a range of ports
+  registerRange(start, end, readFn, writeFn) {
+    for (let p = start; p <= end; p++) {
+      this.register(p, readFn, writeFn);
+    }
+  }
+
+  read8(port) {
+    port &= 0xFFFF;
+    if (this._read[port]) return this._read[port](port) & 0xFF;
+    if (this.debugUnknown) this._logUnknown('R', port);
+    return 0xFF;
+  }
+
+  write8(port, val) {
+    port &= 0xFFFF;
+    val &= 0xFF;
+    if (this._portWriteLog) {
+      this._portWriteLog.set(port, (this._portWriteLog.get(port) || 0) + 1);
+    }
+    if (this._write[port]) { this._write[port](port, val); return; }
+    if (this.debugUnknown) this._logUnknown('W', port, val);
+  }
+
+  _logUnknown(dir, port, val) {
+    const k = `${dir}:${port.toString(16)}`;
+    if (!this._unknownSeen) this._unknownSeen = new Map();
+    const cnt = (this._unknownSeen.get(k) || 0) + 1;
+    this._unknownSeen.set(k, cnt);
+    if (cnt <= 3) console.warn(`IO ${dir} unknown port 0x${port.toString(16).padStart(4,'0')}` + (val !== undefined ? ` = 0x${val.toString(16).padStart(2,'0')}` : ''));
+  }
+
+  read16(port) {
+    return this.read8(port) | (this.read8(port + 1) << 8);
+  }
+
+  write16(port, val) {
+    this.write8(port, val & 0xFF);
+    this.write8(port + 1, (val >> 8) & 0xFF);
+  }
+}
+
+// ===== js/cpu.js =====
+// NEC V30 / 8086 CPU emulator
+class CPU {
+  constructor(mem, io) {
+    this.mem = mem;
+    this.io  = io;
+
+    // Registers
+    this.ax = 0; this.bx = 0; this.cx = 0; this.dx = 0;
+    this.si = 0; this.di = 0; this.bp = 0; this.sp = 0;
+    this.ip = 0;
+    this.cs = 0xF000; this.ds = 0; this.es = 0; this.ss = 0;
+    this.flags = 0x0002;
+
+    this.halted    = false;
+    this.segOvr    = -1;   // segment override: -1=none 0=ES 1=CS 2=SS 3=DS
+    this.repPrefix = 0;    // 0=none 0xF2=REPNE 0xF3=REP
+
+    this._interruptQueue = [];
+    this.totalCycles = 0;
+  }
+
+  // ── Register helpers ───────────────────────────────────────────────
+  get al() { return  this.ax & 0xFF; }
+  get ah() { return (this.ax >> 8) & 0xFF; }
+  get bl() { return  this.bx & 0xFF; }
+  get bh() { return (this.bx >> 8) & 0xFF; }
+  get cl() { return  this.cx & 0xFF; }
+  get ch() { return (this.cx >> 8) & 0xFF; }
+  get dl() { return  this.dx & 0xFF; }
+  get dh() { return (this.dx >> 8) & 0xFF; }
+
+  set al(v) { this.ax = (this.ax & 0xFF00) | (v & 0xFF); }
+  set ah(v) { this.ax = (this.ax & 0x00FF) | ((v & 0xFF) << 8); }
+  set bl(v) { this.bx = (this.bx & 0xFF00) | (v & 0xFF); }
+  set bh(v) { this.bx = (this.bx & 0x00FF) | ((v & 0xFF) << 8); }
+  set cl(v) { this.cx = (this.cx & 0xFF00) | (v & 0xFF); }
+  set ch(v) { this.cx = (this.cx & 0x00FF) | ((v & 0xFF) << 8); }
+  set dl(v) { this.dx = (this.dx & 0xFF00) | (v & 0xFF); }
+  set dh(v) { this.dx = (this.dx & 0x00FF) | ((v & 0xFF) << 8); }
+
+  // Flags
+  get CF() { return (this.flags >> 0) & 1; }
+  get PF() { return (this.flags >> 2) & 1; }
+  get AF() { return (this.flags >> 4) & 1; }
+  get ZF() { return (this.flags >> 6) & 1; }
+  get SF() { return (this.flags >> 7) & 1; }
+  get TF() { return (this.flags >> 8) & 1; }
+  get IF() { return (this.flags >> 9) & 1; }
+  get DF() { return (this.flags >> 10) & 1; }
+  get OF() { return (this.flags >> 11) & 1; }
+
+  set CF(v) { this.flags = (this.flags & ~0x001) | (v ? 1 : 0); }
+  set PF(v) { this.flags = (this.flags & ~0x004) | (v ? 4 : 0); }
+  set AF(v) { this.flags = (this.flags & ~0x010) | (v ? 0x10 : 0); }
+  set ZF(v) { this.flags = (this.flags & ~0x040) | (v ? 0x40 : 0); }
+  set SF(v) { this.flags = (this.flags & ~0x080) | (v ? 0x80 : 0); }
+  set TF(v) { this.flags = (this.flags & ~0x100) | (v ? 0x100 : 0); }
+  set IF(v) { this.flags = (this.flags & ~0x200) | (v ? 0x200 : 0); }
+  set DF(v) { this.flags = (this.flags & ~0x400) | (v ? 0x400 : 0); }
+  set OF(v) { this.flags = (this.flags & ~0x800) | (v ? 0x800 : 0); }
+
+  // ── Address helpers ────────────────────────────────────────────────
+  seg2phys(seg, off) { return ((seg << 4) + (off & 0xFFFF)) & 0xFFFFF; }
+
+  effSeg(def) {
+    if (this.segOvr < 0) return def;
+    return [this.es, this.cs, this.ss, this.ds][this.segOvr];
+  }
+
+  // ── Memory access ──────────────────────────────────────────────────
+  rb(addr)      { return this.mem.read8(addr); }
+  rw(addr)      { return this.mem.read16(addr); }
+  wb(addr, v)   { this.mem.write8(addr, v); }
+  ww(addr, v)   { this.mem.write16(addr, v); }
+
+  // ── Fetch from CS:IP ───────────────────────────────────────────────
+  nextB() {
+    const v = this.rb(this.seg2phys(this.cs, this.ip));
+    this.ip = (this.ip + 1) & 0xFFFF;
+    return v;
+  }
+  nextW() {
+    const lo = this.rb(this.seg2phys(this.cs, this.ip));
+    this.ip = (this.ip + 1) & 0xFFFF;
+    const hi = this.rb(this.seg2phys(this.cs, this.ip));
+    this.ip = (this.ip + 1) & 0xFFFF;
+    return lo | (hi << 8);
+  }
+  nextSB() { const v = this.nextB(); return v >= 0x80 ? v - 0x100 : v; }
+  nextSW() { const v = this.nextW(); return v >= 0x8000 ? v - 0x10000 : v; }
+
+  // ── Reg accessors ──────────────────────────────────────────────────
+  getReg8(r) {
+    switch (r) {
+      case 0: return this.al; case 1: return this.cl;
+      case 2: return this.dl; case 3: return this.bl;
+      case 4: return this.ah; case 5: return this.ch;
+      case 6: return this.dh; case 7: return this.bh;
+    }
+    return 0;
+  }
+  setReg8(r, v) {
+    v &= 0xFF;
+    switch (r) {
+      case 0: this.al = v; break; case 1: this.cl = v; break;
+      case 2: this.dl = v; break; case 3: this.bl = v; break;
+      case 4: this.ah = v; break; case 5: this.ch = v; break;
+      case 6: this.dh = v; break; case 7: this.bh = v; break;
+    }
+  }
+  getReg16(r) {
+    switch (r) {
+      case 0: return this.ax; case 1: return this.cx;
+      case 2: return this.dx; case 3: return this.bx;
+      case 4: return this.sp; case 5: return this.bp;
+      case 6: return this.si; case 7: return this.di;
+    }
+    return 0;
+  }
+  setReg16(r, v) {
+    v &= 0xFFFF;
+    switch (r) {
+      case 0: this.ax = v; break; case 1: this.cx = v; break;
+      case 2: this.dx = v; break; case 3: this.bx = v; break;
+      case 4: this.sp = v; break; case 5: this.bp = v; break;
+      case 6: this.si = v; break; case 7: this.di = v; break;
+    }
+  }
+  getSReg(r) {
+    switch (r) {
+      case 0: return this.es; case 1: return this.cs;
+      case 2: return this.ss; case 3: return this.ds;
+    }
+    return 0;
+  }
+  setSReg(r, v) {
+    v &= 0xFFFF;
+    switch (r) {
+      case 0: this.es = v; break; case 1: this.cs = v; break;
+      case 2: this.ss = v; break; case 3: this.ds = v; break;
+    }
+  }
+
+  // ── ModRM decoder ──────────────────────────────────────────────────
+  // Returns { addr, isReg, reg } where addr is physical address for memory operands
+  decRM(modrm) {
+    const mod = (modrm >> 6) & 3;
+    const rm  = modrm & 7;
+    if (mod === 3) return { isReg: true, reg: rm, addr: 0 };
+
+    let ea = 0, seg = this.ds;
+    switch (rm) {
+      case 0: ea = (this.bx + this.si) & 0xFFFF; break;
+      case 1: ea = (this.bx + this.di) & 0xFFFF; break;
+      case 2: ea = (this.bp + this.si) & 0xFFFF; seg = this.ss; break;
+      case 3: ea = (this.bp + this.di) & 0xFFFF; seg = this.ss; break;
+      case 4: ea = this.si; break;
+      case 5: ea = this.di; break;
+      case 6:
+        if (mod === 0) { ea = this.nextW(); seg = this.ds; }
+        else           { ea = this.bp; seg = this.ss; }
+        break;
+      case 7: ea = this.bx; break;
+    }
+    if (mod === 1) ea = (ea + this.nextSB()) & 0xFFFF;
+    else if (mod === 2) ea = (ea + this.nextSW()) & 0xFFFF;
+
+    seg = this.effSeg(seg);
+    return { isReg: false, reg: 0, addr: this.seg2phys(seg, ea), ea: ea & 0xFFFF };
+  }
+
+  getRM8(e)    { return e.isReg ? this.getReg8(e.reg)  : this.rb(e.addr); }
+  setRM8(e, v) { if (e.isReg) this.setReg8(e.reg, v);  else this.wb(e.addr, v); }
+  getRM16(e)   { return e.isReg ? this.getReg16(e.reg) : this.rw(e.addr); }
+  setRM16(e,v) { if (e.isReg) this.setReg16(e.reg, v); else this.ww(e.addr, v); }
+
+  // ── Flags ──────────────────────────────────────────────────────────
+  parity(v) {
+    v ^= v >> 4; v ^= v >> 2; v ^= v >> 1;
+    return (~v) & 1;
+  }
+  szp8(v)  { this.ZF = !(v & 0xFF); this.SF = !!(v & 0x80);  this.PF = this.parity(v & 0xFF); }
+  szp16(v) { this.ZF = !(v & 0xFFFF); this.SF = !!(v & 0x8000); this.PF = this.parity(v & 0xFF); }
+
+  // ── ALU ────────────────────────────────────────────────────────────
+  ADD8(a, b)  { const r = a+b; this.CF=r>0xFF; this.AF=!!((a^b^r)&0x10); this.OF=!!((~(a^b)&(a^r))&0x80);  this.szp8(r);  return r&0xFF; }
+  ADD16(a,b)  { const r = a+b; this.CF=r>0xFFFF; this.AF=!!((a^b^r)&0x10); this.OF=!!((~(a^b)&(a^r))&0x8000); this.szp16(r); return r&0xFFFF; }
+  ADC8(a, b)  { const c=this.CF,r=a+b+c; this.CF=r>0xFF; this.AF=!!((a^b^r)&0x10); this.OF=!!((~(a^b)&(a^r))&0x80);  this.szp8(r);  return r&0xFF; }
+  ADC16(a,b)  { const c=this.CF,r=a+b+c; this.CF=r>0xFFFF; this.AF=!!((a^b^r)&0x10); this.OF=!!((~(a^b)&(a^r))&0x8000); this.szp16(r); return r&0xFFFF; }
+  SUB8(a, b)  { const r = a-b; this.CF=r<0; this.AF=!!((a^b^r)&0x10); this.OF=!!(((a^b)&(a^r))&0x80);  this.szp8(r);  return r&0xFF; }
+  SUB16(a,b)  { const r = a-b; this.CF=r<0; this.AF=!!((a^b^r)&0x10); this.OF=!!(((a^b)&(a^r))&0x8000); this.szp16(r); return r&0xFFFF; }
+  SBB8(a, b)  { const c=this.CF,r=a-b-c; this.CF=r<0; this.AF=!!((a^b^r)&0x10); this.OF=!!(((a^b)&(a^r))&0x80);  this.szp8(r);  return r&0xFF; }
+  SBB16(a,b)  { const c=this.CF,r=a-b-c; this.CF=r<0; this.AF=!!((a^b^r)&0x10); this.OF=!!(((a^b)&(a^r))&0x8000); this.szp16(r); return r&0xFFFF; }
+  AND8(a, b)  { const r=a&b; this.CF=0;this.OF=0;this.AF=0; this.szp8(r);  return r; }
+  AND16(a,b)  { const r=a&b; this.CF=0;this.OF=0;this.AF=0; this.szp16(r); return r; }
+  OR8(a,  b)  { const r=a|b; this.CF=0;this.OF=0;this.AF=0; this.szp8(r);  return r; }
+  OR16(a, b)  { const r=a|b; this.CF=0;this.OF=0;this.AF=0; this.szp16(r); return r; }
+  XOR8(a, b)  { const r=a^b; this.CF=0;this.OF=0;this.AF=0; this.szp8(r);  return r; }
+  XOR16(a,b)  { const r=a^b; this.CF=0;this.OF=0;this.AF=0; this.szp16(r); return r; }
+  CMP8(a, b)  { this.SUB8(a,b); }
+  CMP16(a,b)  { this.SUB16(a,b); }
+  TEST8(a,b)  { this.AND8(a,b); }
+  TEST16(a,b) { this.AND16(a,b); }
+
+  INC8(v)  { const r=(v+1)&0xFF;   const wasOF=this.CF; this.OF=r===0x80;  this.AF=!(v&0x0F); this.szp8(r);  this.CF=wasOF; return r; }
+  INC16(v) { const r=(v+1)&0xFFFF; const wasOF=this.CF; this.OF=r===0x8000;this.AF=!(v&0x000F);this.szp16(r);this.CF=wasOF; return r; }
+  DEC8(v)  { const r=(v-1)&0xFF;   const wasOF=this.CF; this.OF=v===0x80;  this.AF=!(v&0x0F); this.szp8(r);  this.CF=wasOF; return r; }
+  DEC16(v) { const r=(v-1)&0xFFFF; const wasOF=this.CF; this.OF=v===0x8000;this.AF=!(v&0x000F);this.szp16(r);this.CF=wasOF; return r; }
+  NEG8(v)  { return this.SUB8(0, v); }
+  NEG16(v) { return this.SUB16(0, v); }
+  NOT8(v)  { return (~v)&0xFF; }
+  NOT16(v) { return (~v)&0xFFFF; }
+
+  // Shifts
+  SHL8(v, n)  { n &= 0x1F; if(!n) return v; const r=(v<<n)&0xFF; this.CF=!!(v&(0x80>>(n-1))); this.OF=n===1&&!!(this.CF^!!(r&0x80)); this.szp8(r); return r; }
+  SHL16(v,n)  { n &= 0x1F; if(!n) return v; const r=(v<<n)&0xFFFF; this.CF=!!(v&(0x8000>>(n-1))); this.OF=n===1&&!!(this.CF^!!(r&0x8000)); this.szp16(r); return r; }
+  SHR8(v, n)  { n &= 0x1F; if(!n) return v; this.CF=!!(v&(1<<(n-1))); const r=(v>>>n)&0xFF; this.OF=n===1&&!!(v&0x80); this.szp8(r); return r; }
+  SHR16(v,n)  { n &= 0x1F; if(!n) return v; this.CF=!!(v&(1<<(n-1))); const r=(v>>>n)&0xFFFF; this.OF=n===1&&!!(v&0x8000); this.szp16(r); return r; }
+  SAR8(v, n)  { n &= 0x1F; if(!n) return v; const sv=(v>=0x80?v-0x100:v); this.CF=!!(v&(1<<(n-1))); const r=(sv>>n)&0xFF; this.OF=0; this.szp8(r); return r; }
+  SAR16(v,n)  { n &= 0x1F; if(!n) return v; const sv=(v>=0x8000?v-0x10000:v); this.CF=!!(v&(1<<(n-1))); const r=(sv>>n)&0xFFFF; this.OF=0; this.szp16(r); return r; }
+  ROL8(v, n)  { n = (n&0x1F)%8;  if(!n){this.CF=v&1;return v;} const r=((v<<n)|(v>>(8-n)))&0xFF;  this.CF=r&1; this.OF=n===1&&!!((r>>7^r)&1); return r; }
+  ROL16(v,n)  { n = (n&0x1F)%16; if(!n){this.CF=v&1;return v;} const r=((v<<n)|(v>>(16-n)))&0xFFFF; this.CF=r&1; this.OF=n===1&&!!((r>>15^r)&1); return r; }
+  ROR8(v, n)  { n = (n&0x1F)%8;  if(!n){this.CF=!!(v&0x80);return v;} const r=((v>>n)|(v<<(8-n)))&0xFF;  this.CF=!!(r&0x80); this.OF=n===1&&!!((r>>6^r>>7)&1); return r; }
+  ROR16(v,n)  { n = (n&0x1F)%16; if(!n){this.CF=!!(v&0x8000);return v;} const r=((v>>n)|(v<<(16-n)))&0xFFFF; this.CF=!!(r&0x8000); this.OF=n===1&&!!((r>>14^r>>15)&1); return r; }
+  RCL8(v, n)  { n = (n&0x1F)%9;  if(!n) return v; let r=v,c=this.CF; for(let i=0;i<n;i++){const nc=(r>>7)&1;r=((r<<1)|c)&0xFF;c=nc;} this.CF=c; this.OF=n===1&&!!(c^!!(r&0x80)); return r; }
+  RCL16(v,n)  { n = (n&0x1F)%17; if(!n) return v; let r=v,c=this.CF; for(let i=0;i<n;i++){const nc=(r>>15)&1;r=((r<<1)|c)&0xFFFF;c=nc;} this.CF=c; this.OF=n===1&&!!(c^!!(r&0x8000)); return r; }
+  RCR8(v, n)  { n = (n&0x1F)%9;  if(!n) return v; let r=v,c=this.CF; for(let i=0;i<n;i++){const nc=r&1;r=((c<<7)|(r>>1))&0xFF;c=nc;} this.CF=c; this.OF=n===1&&!!((r>>6^r>>7)&1); return r; }
+  RCR16(v,n)  { n = (n&0x1F)%17; if(!n) return v; let r=v,c=this.CF; for(let i=0;i<n;i++){const nc=r&1;r=((c<<15)|(r>>1))&0xFFFF;c=nc;} this.CF=c; this.OF=n===1&&!!((r>>14^r>>15)&1); return r; }
+
+  // MUL / DIV
+  MUL8(v)  { const r=this.al*v; this.ax=r&0xFFFF; this.CF=this.OF=!!(r>>8); }
+  MUL16(v) { const r=this.ax*v; this.dx=(r>>16)&0xFFFF; this.ax=r&0xFFFF; this.CF=this.OF=!!this.dx; }
+  IMUL8(v) { const a=this.al>=0x80?this.al-0x100:this.al; const b=v>=0x80?v-0x100:v; const r=a*b; this.ax=r&0xFFFF; this.CF=this.OF=(r<-128||r>127)?1:0; }
+  IMUL16(v){ const a=this.ax>=0x8000?this.ax-0x10000:this.ax; const b=v>=0x8000?v-0x10000:v; const r=a*b; this.dx=(r>>16)&0xFFFF; this.ax=r&0xFFFF; this.CF=this.OF=(r<-32768||r>32767)?1:0; }
+  DIV8(v)  { if(!v){this.interrupt(0);return;} const r=this.ax/v|0; if(r>0xFF){this.interrupt(0);return;} this.al=r&0xFF; this.ah=this.ax%v; }
+  DIV16(v) { if(!v){this.interrupt(0);return;} const num=(this.dx<<16)|this.ax; const r=num/v|0; if(r>0xFFFF){this.interrupt(0);return;} this.ax=r&0xFFFF; this.dx=num%v; }
+  IDIV8(v) { if(!v){this.interrupt(0);return;} const n=this.ax>=0x8000?this.ax-0x10000:this.ax; const d=v>=0x80?v-0x100:v; const r=Math.trunc(n/d); if(r<-128||r>127){this.interrupt(0);return;} this.al=r&0xFF; this.ah=((n%d)+256)&0xFF; }
+  IDIV16(v){ if(!v){this.interrupt(0);return;} const n=(this.dx<<16)|this.ax; const d=v>=0x8000?v-0x10000:v; const r=Math.trunc(n/d); if(r<-32768||r>32767){this.interrupt(0);return;} this.ax=r&0xFFFF; this.dx=((n%d)+0x10000)&0xFFFF; }
+
+  // ── Stack ──────────────────────────────────────────────────────────
+  push(v) {
+    this.sp = (this.sp - 2) & 0xFFFF;
+    this.ww(this.seg2phys(this.ss, this.sp), v & 0xFFFF);
+  }
+  pop() {
+    const v = this.rw(this.seg2phys(this.ss, this.sp));
+    this.sp = (this.sp + 2) & 0xFFFF;
+    return v;
+  }
+
+  // ── Interrupts ─────────────────────────────────────────────────────
+  interrupt(n) {
+    this.halted = false;
+    this.push(this.flags | 0xF002);
+    this.push(this.cs);
+    this.push(this.ip);
+    this.IF = 0;
+    this.TF = 0;
+    const vec = n * 4;
+    this.ip = this.rw(vec);
+    this.cs = this.rw(vec + 2);
+  }
+
+  requestInterrupt(irq) {
+    this._interruptQueue.push(irq);
+  }
+
+  // ── Step ───────────────────────────────────────────────────────────
+  step() {
+    // Check hardware interrupts
+    if (this.IF && this._interruptQueue.length > 0) {
+      const irq = this._interruptQueue.shift();
+      this.interrupt(irq);
+      this.totalCycles += 50;
+      return 50;
+    }
+
+    if (this.halted) return 1;
+
+    this.segOvr = -1;
+    this.repPrefix = 0;
+
+    let op;
+    prefixLoop: while (true) {
+      op = this.nextB();
+      switch (op) {
+        case 0x26: this.segOvr = 0; break;
+        case 0x2E: this.segOvr = 1; break;
+        case 0x36: this.segOvr = 2; break;
+        case 0x3E: this.segOvr = 3; break;
+        case 0xF0: break; // LOCK
+        case 0xF2: this.repPrefix = 0xF2; break;
+        case 0xF3: this.repPrefix = 0xF3; break;
+        default: break prefixLoop;
+      }
+    }
+
+    const cycles = this._exec(op);
+    this.totalCycles += cycles;
+    return cycles;
+  }
+
+  _exec(op) {
+    let mr, e, e2, r, r2, v, v2, seg, off, n, c;
+
+    switch (op) {
+      // ─ ADD ─
+      case 0x00: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.ADD8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x01: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.ADD16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x02: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.ADD8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x03: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.ADD16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x04: this.al=this.ADD8(this.al,this.nextB()); return 4;
+      case 0x05: this.ax=this.ADD16(this.ax,this.nextW()); return 4;
+      // ─ PUSH ES / POP ES ─
+      case 0x06: this.push(this.es); return 10;
+      case 0x07: this.es=this.pop(); return 8;
+      // ─ OR ─
+      case 0x08: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.OR8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x09: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.OR16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x0A: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.OR8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x0B: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.OR16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x0C: this.al=this.OR8(this.al,this.nextB()); return 4;
+      case 0x0D: this.ax=this.OR16(this.ax,this.nextW()); return 4;
+      // ─ PUSH CS ─
+      case 0x0E: this.push(this.cs); return 10;
+      // ─ POP CS (8086 only) ─
+      case 0x0F: this.cs=this.pop(); return 8;
+      // ─ ADC ─
+      case 0x10: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.ADC8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x11: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.ADC16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x12: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.ADC8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x13: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.ADC16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x14: this.al=this.ADC8(this.al,this.nextB()); return 4;
+      case 0x15: this.ax=this.ADC16(this.ax,this.nextW()); return 4;
+      // ─ PUSH/POP SS ─
+      case 0x16: this.push(this.ss); return 10;
+      case 0x17: this.ss=this.pop(); return 8;
+      // ─ SBB ─
+      case 0x18: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.SBB8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x19: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.SBB16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x1A: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.SBB8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x1B: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.SBB16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x1C: this.al=this.SBB8(this.al,this.nextB()); return 4;
+      case 0x1D: this.ax=this.SBB16(this.ax,this.nextW()); return 4;
+      // ─ PUSH/POP DS ─
+      case 0x1E: this.push(this.ds); return 10;
+      case 0x1F: this.ds=this.pop(); return 8;
+      // ─ AND ─
+      case 0x20: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.AND8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x21: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.AND16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x22: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.AND8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x23: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.AND16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x24: this.al=this.AND8(this.al,this.nextB()); return 4;
+      case 0x25: this.ax=this.AND16(this.ax,this.nextW()); return 4;
+      // ─ DAA / DAS / AAA / AAS (BCD adjust) ─
+      case 0x27: { let a=this.al; const oc=this.CF; let cf=0;
+        if ((a&0xF)>9 || this.AF) { a+=6; this.AF=1; } else this.AF=0;
+        if ((this.al>0x99) || oc) { a+=0x60; cf=1; }
+        this.al=a&0xFF; this.CF=cf; this.szp8(this.al); return 4; }
+      case 0x2F: { let a=this.al; const oa=this.al, oc=this.CF; let cf=0;
+        if ((a&0xF)>9 || this.AF) { a-=6; this.AF=1; cf=oc||(oa<6)?cf:cf; } else this.AF=0;
+        if (oa>0x99 || oc) { a-=0x60; cf=1; }
+        this.al=a&0xFF; this.CF=cf; this.szp8(this.al); return 4; }
+      case 0x37: if ((this.al&0xF)>9 || this.AF) { this.al=(this.al+6)&0xFF; this.ah=(this.ah+1)&0xFF; this.AF=1; this.CF=1; } else { this.AF=0; this.CF=0; } this.al&=0x0F; return 4;
+      case 0x3F: if ((this.al&0xF)>9 || this.AF) { this.al=(this.al-6)&0xFF; this.ah=(this.ah-1)&0xFF; this.AF=1; this.CF=1; } else { this.AF=0; this.CF=0; } this.al&=0x0F; return 4;
+      // ─ SUB ─
+      case 0x28: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.SUB8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x29: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.SUB16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x2A: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.SUB8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x2B: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.SUB16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x2C: this.al=this.SUB8(this.al,this.nextB()); return 4;
+      case 0x2D: this.ax=this.SUB16(this.ax,this.nextW()); return 4;
+      // ─ XOR ─
+      case 0x30: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.XOR8(this.getRM8(e),this.getReg8((mr>>3)&7))); return 3;
+      case 0x31: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.XOR16(this.getRM16(e),this.getReg16((mr>>3)&7))); return 3;
+      case 0x32: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.XOR8(this.getReg8((mr>>3)&7),this.getRM8(e))); return 3;
+      case 0x33: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.XOR16(this.getReg16((mr>>3)&7),this.getRM16(e))); return 3;
+      case 0x34: this.al=this.XOR8(this.al,this.nextB()); return 4;
+      case 0x35: this.ax=this.XOR16(this.ax,this.nextW()); return 4;
+      // ─ CMP ─
+      case 0x38: mr=this.nextB();e=this.decRM(mr);this.CMP8(this.getRM8(e),this.getReg8((mr>>3)&7)); return 3;
+      case 0x39: mr=this.nextB();e=this.decRM(mr);this.CMP16(this.getRM16(e),this.getReg16((mr>>3)&7)); return 3;
+      case 0x3A: mr=this.nextB();e=this.decRM(mr);this.CMP8(this.getReg8((mr>>3)&7),this.getRM8(e)); return 3;
+      case 0x3B: mr=this.nextB();e=this.decRM(mr);this.CMP16(this.getReg16((mr>>3)&7),this.getRM16(e)); return 3;
+      case 0x3C: this.CMP8(this.al,this.nextB()); return 4;
+      case 0x3D: this.CMP16(this.ax,this.nextW()); return 4;
+      // ─ INC r16 ─
+      case 0x40: this.ax=this.INC16(this.ax); return 2;
+      case 0x41: this.cx=this.INC16(this.cx); return 2;
+      case 0x42: this.dx=this.INC16(this.dx); return 2;
+      case 0x43: this.bx=this.INC16(this.bx); return 2;
+      case 0x44: this.sp=this.INC16(this.sp); return 2;
+      case 0x45: this.bp=this.INC16(this.bp); return 2;
+      case 0x46: this.si=this.INC16(this.si); return 2;
+      case 0x47: this.di=this.INC16(this.di); return 2;
+      // ─ DEC r16 ─
+      case 0x48: this.ax=this.DEC16(this.ax); return 2;
+      case 0x49: this.cx=this.DEC16(this.cx); return 2;
+      case 0x4A: this.dx=this.DEC16(this.dx); return 2;
+      case 0x4B: this.bx=this.DEC16(this.bx); return 2;
+      case 0x4C: this.sp=this.DEC16(this.sp); return 2;
+      case 0x4D: this.bp=this.DEC16(this.bp); return 2;
+      case 0x4E: this.si=this.DEC16(this.si); return 2;
+      case 0x4F: this.di=this.DEC16(this.di); return 2;
+      // ─ PUSH r16 ─
+      case 0x50: this.push(this.ax); return 11;
+      case 0x51: this.push(this.cx); return 11;
+      case 0x52: this.push(this.dx); return 11;
+      case 0x53: this.push(this.bx); return 11;
+      case 0x54: this.push(this.sp); return 11;
+      case 0x55: this.push(this.bp); return 11;
+      case 0x56: this.push(this.si); return 11;
+      case 0x57: this.push(this.di); return 11;
+      // ─ POP r16 ─
+      case 0x58: this.ax=this.pop(); return 8;
+      case 0x59: this.cx=this.pop(); return 8;
+      case 0x5A: this.dx=this.pop(); return 8;
+      case 0x5B: this.bx=this.pop(); return 8;
+      case 0x5C: this.sp=this.pop(); return 8;
+      case 0x5D: this.bp=this.pop(); return 8;
+      case 0x5E: this.si=this.pop(); return 8;
+      case 0x5F: this.di=this.pop(); return 8;
+      // ─ PUSHA / POPA (80186) ─
+      case 0x60: { const sp0=this.sp; this.push(this.ax);this.push(this.cx);this.push(this.dx);this.push(this.bx);this.push(sp0);this.push(this.bp);this.push(this.si);this.push(this.di); return 19; }
+      case 0x61: { this.di=this.pop();this.si=this.pop();this.bp=this.pop();this.pop();this.bx=this.pop();this.dx=this.pop();this.cx=this.pop();this.ax=this.pop(); return 19; }
+      // ─ BOUND (80186) - consume modrm, no fault check ─
+      case 0x62: mr=this.nextB(); this.decRM(mr); return 6;
+      // ─ PUSH imm / IMUL imm (80186) ─
+      case 0x68: this.push(this.nextW()); return 3;
+      case 0x6A: this.push(this.nextSB()&0xFFFF); return 3;
+      case 0x69: { mr=this.nextB();e=this.decRM(mr);const src=this.getRM16(e);const imm=this.nextW();
+        const a=src>=0x8000?src-0x10000:src; const b=imm>=0x8000?imm-0x10000:imm; const r=a*b;
+        this.setReg16((mr>>3)&7, r&0xFFFF); this.CF=this.OF=(r<-32768||r>32767)?1:0; return 9; }
+      case 0x6B: { mr=this.nextB();e=this.decRM(mr);const src=this.getRM16(e);const imm=this.nextSB();
+        const a=src>=0x8000?src-0x10000:src; const r=a*imm;
+        this.setReg16((mr>>3)&7, r&0xFFFF); this.CF=this.OF=(r<-32768||r>32767)?1:0; return 9; }
+      // ─ INS / OUTS (80186 string I/O) ─
+      case 0x6C: case 0x6D: case 0x6E: case 0x6F: this._strOp(op); return 8;
+      // ─ Jcc short ─
+      case 0x70: n=this.nextSB(); if(this.OF)  this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x71: n=this.nextSB(); if(!this.OF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x72: n=this.nextSB(); if(this.CF)  this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x73: n=this.nextSB(); if(!this.CF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x74: n=this.nextSB(); if(this.ZF)  this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x75: n=this.nextSB(); if(!this.ZF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x76: n=this.nextSB(); if(this.CF||this.ZF)   this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x77: n=this.nextSB(); if(!this.CF&&!this.ZF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x78: n=this.nextSB(); if(this.SF)  this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x79: n=this.nextSB(); if(!this.SF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7A: n=this.nextSB(); if(this.PF)  this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7B: n=this.nextSB(); if(!this.PF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7C: n=this.nextSB(); if(this.SF!==this.OF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7D: n=this.nextSB(); if(this.SF===this.OF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7E: n=this.nextSB(); if(this.ZF||this.SF!==this.OF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      case 0x7F: n=this.nextSB(); if(!this.ZF&&this.SF===this.OF) this.ip=(this.ip+n)&0xFFFF; return 4;
+      // ─ Grp1 imm8/16 ─
+      case 0x80: { mr=this.nextB();e=this.decRM(mr);n=this.nextB();v=this.getRM8(e); this._grp1b((mr>>3)&7,e,v,n); return 4; }
+      case 0x81: { mr=this.nextB();e=this.decRM(mr);n=this.nextW();v=this.getRM16(e);this._grp1w((mr>>3)&7,e,v,n); return 4; }
+      case 0x82: { mr=this.nextB();e=this.decRM(mr);n=this.nextSB()&0xFF;v=this.getRM8(e);this._grp1b((mr>>3)&7,e,v,n); return 4; }
+      case 0x83: { mr=this.nextB();e=this.decRM(mr);n=this.nextSB()&0xFFFF;v=this.getRM16(e);this._grp1w((mr>>3)&7,e,v,n); return 4; }
+      // ─ TEST ─
+      case 0x84: mr=this.nextB();e=this.decRM(mr);this.TEST8(this.getRM8(e),this.getReg8((mr>>3)&7)); return 3;
+      case 0x85: mr=this.nextB();e=this.decRM(mr);this.TEST16(this.getRM16(e),this.getReg16((mr>>3)&7)); return 3;
+      // ─ XCHG ─
+      case 0x86: { mr=this.nextB();e=this.decRM(mr);const a=this.getRM8(e);const b=this.getReg8((mr>>3)&7);this.setRM8(e,b);this.setReg8((mr>>3)&7,a); return 4; }
+      case 0x87: { mr=this.nextB();e=this.decRM(mr);const a=this.getRM16(e);const b=this.getReg16((mr>>3)&7);this.setRM16(e,b);this.setReg16((mr>>3)&7,a); return 4; }
+      // ─ MOV ─
+      case 0x88: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.getReg8((mr>>3)&7)); return 2;
+      case 0x89: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.getReg16((mr>>3)&7)); return 2;
+      case 0x8A: mr=this.nextB();e=this.decRM(mr);this.setReg8((mr>>3)&7,this.getRM8(e)); return 2;
+      case 0x8B: mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,this.getRM16(e)); return 2;
+      case 0x8C: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.getSReg((mr>>3)&3)); return 2;
+      case 0x8D: { mr=this.nextB();e=this.decRM(mr);this.setReg16((mr>>3)&7,e.ea||0); return 2; } // LEA
+      case 0x8E: mr=this.nextB();e=this.decRM(mr);this.setSReg((mr>>3)&3,this.getRM16(e)); return 2;
+      // ─ POP r/m ─
+      case 0x8F: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.pop()); return 8;
+      // ─ NOP/XCHG AX,r ─
+      case 0x90: return 3; // NOP
+      case 0x91: v=this.ax;this.ax=this.cx;this.cx=v; return 3;
+      case 0x92: v=this.ax;this.ax=this.dx;this.dx=v; return 3;
+      case 0x93: v=this.ax;this.ax=this.bx;this.bx=v; return 3;
+      case 0x94: v=this.ax;this.ax=this.sp;this.sp=v; return 3;
+      case 0x95: v=this.ax;this.ax=this.bp;this.bp=v; return 3;
+      case 0x96: v=this.ax;this.ax=this.si;this.si=v; return 3;
+      case 0x97: v=this.ax;this.ax=this.di;this.di=v; return 3;
+      // ─ CBW / CWD ─
+      case 0x98: this.ax=(this.al>=0x80)?(this.al|0xFF00):(this.al&0x00FF); return 2;
+      case 0x99: this.dx=(this.ax>=0x8000)?0xFFFF:0; return 5;
+      // ─ CALL far ─
+      case 0x9A: { off=this.nextW();seg=this.nextW();this.push(this.cs);this.push(this.ip);this.cs=seg;this.ip=off; return 28; }
+      // ─ WAIT ─
+      case 0x9B: return 4;
+      // ─ PUSHF/POPF ─
+      case 0x9C: this.push(this.flags|0xF002); return 10;
+      case 0x9D: this.flags=(this.pop()|0x0002); return 8;
+      // ─ SAHF/LAHF ─
+      case 0x9E: this.flags=(this.flags&0xFF00)|(this.ah&0xD5)|0x02; return 4;
+      case 0x9F: this.ah=(this.flags&0xFF)|0x02; return 4;
+      // ─ MOV mem,AX / AX,mem ─
+      case 0xA0: v=this.nextW();this.al=this.rb(this.seg2phys(this.effSeg(this.ds),v)); return 10;
+      case 0xA1: v=this.nextW();this.ax=this.rw(this.seg2phys(this.effSeg(this.ds),v)); return 10;
+      case 0xA2: v=this.nextW();this.wb(this.seg2phys(this.effSeg(this.ds),v),this.al); return 10;
+      case 0xA3: v=this.nextW();this.ww(this.seg2phys(this.effSeg(this.ds),v),this.ax); return 10;
+      // ─ String ops ─
+      case 0xA4: this._strOp(0xA4); return 18;
+      case 0xA5: this._strOp(0xA5); return 18;
+      case 0xA6: this._strOp(0xA6); return 22;
+      case 0xA7: this._strOp(0xA7); return 22;
+      // ─ TEST AL/AX, imm ─
+      case 0xA8: this.TEST8(this.al,this.nextB()); return 4;
+      case 0xA9: this.TEST16(this.ax,this.nextW()); return 4;
+      case 0xAA: this._strOp(0xAA); return 11;
+      case 0xAB: this._strOp(0xAB); return 11;
+      case 0xAC: this._strOp(0xAC); return 12;
+      case 0xAD: this._strOp(0xAD); return 12;
+      case 0xAE: this._strOp(0xAE); return 15;
+      case 0xAF: this._strOp(0xAF); return 15;
+      // ─ MOV AL/AX, imm ─
+      case 0xB0: this.al=this.nextB(); return 4;
+      case 0xB1: this.cl=this.nextB(); return 4;
+      case 0xB2: this.dl=this.nextB(); return 4;
+      case 0xB3: this.bl=this.nextB(); return 4;
+      case 0xB4: this.ah=this.nextB(); return 4;
+      case 0xB5: this.ch=this.nextB(); return 4;
+      case 0xB6: this.dh=this.nextB(); return 4;
+      case 0xB7: this.bh=this.nextB(); return 4;
+      case 0xB8: this.ax=this.nextW(); return 4;
+      case 0xB9: this.cx=this.nextW(); return 4;
+      case 0xBA: this.dx=this.nextW(); return 4;
+      case 0xBB: this.bx=this.nextW(); return 4;
+      case 0xBC: this.sp=this.nextW(); return 4;
+      case 0xBD: this.bp=this.nextW(); return 4;
+      case 0xBE: this.si=this.nextW(); return 4;
+      case 0xBF: this.di=this.nextW(); return 4;
+      // ─ Shift/Rotate r/m, imm8 (80186) ─
+      case 0xC0: { mr=this.nextB();e=this.decRM(mr);v=this.getRM8(e); n=this.nextB()&0x1F; this._shiftRot8((mr>>3)&7,e,v,n); return 5; }
+      case 0xC1: { mr=this.nextB();e=this.decRM(mr);v=this.getRM16(e);n=this.nextB()&0x1F; this._shiftRot16((mr>>3)&7,e,v,n); return 5; }
+      // ─ RET ─
+      case 0xC2: n=this.nextW();this.ip=this.pop();this.sp=(this.sp+n)&0xFFFF; return 12;
+      case 0xC3: this.ip=this.pop(); return 8;
+      // ─ LES / LDS ─
+      case 0xC4: { mr=this.nextB();e=this.decRM(mr);const ra=(mr>>3)&7;this.setReg16(ra,this.rw(e.addr));this.es=this.rw((e.addr+2)&0xFFFFF); return 16; }
+      case 0xC5: { mr=this.nextB();e=this.decRM(mr);const ra=(mr>>3)&7;this.setReg16(ra,this.rw(e.addr));this.ds=this.rw((e.addr+2)&0xFFFFF); return 16; }
+      // ─ MOV r/m, imm ─
+      case 0xC6: mr=this.nextB();e=this.decRM(mr);this.setRM8(e, this.nextB()); return 10;
+      case 0xC7: mr=this.nextB();e=this.decRM(mr);this.setRM16(e,this.nextW()); return 10;
+      // ─ ENTER / LEAVE (80186) ─
+      case 0xC8: { const size=this.nextW(); const lv=this.nextB()&0x1F;
+        this.push(this.bp); const frame=this.sp;
+        if (lv>0) { for (let i=1;i<lv;i++){ this.bp=(this.bp-2)&0xFFFF; this.push(this.rw(this.seg2phys(this.ss,this.bp))); } this.push(frame); }
+        this.bp=frame; this.sp=(this.sp-size)&0xFFFF; return 15; }
+      case 0xC9: this.sp=this.bp; this.bp=this.pop(); return 8;
+      // ─ RET far ─
+      case 0xCA: n=this.nextW();this.ip=this.pop();this.cs=this.pop();this.sp=(this.sp+n)&0xFFFF; return 17;
+      case 0xCB: this.ip=this.pop();this.cs=this.pop(); return 15;
+      // ─ INT ─
+      case 0xCC: this.interrupt(3); return 52;
+      case 0xCD: this.interrupt(this.nextB()); return 51;
+      case 0xCE: if(this.OF) this.interrupt(4); return 4;
+      // ─ IRET ─
+      case 0xCF: this.ip=this.pop();this.cs=this.pop();this.flags=(this.pop()|0x0002); return 24;
+      // ─ Shift/Rotate group ─
+      case 0xD0: { mr=this.nextB();e=this.decRM(mr);v=this.getRM8(e); this._shiftRot8((mr>>3)&7,e,v,1); return 2; }
+      case 0xD1: { mr=this.nextB();e=this.decRM(mr);v=this.getRM16(e);this._shiftRot16((mr>>3)&7,e,v,1); return 2; }
+      case 0xD2: { mr=this.nextB();e=this.decRM(mr);v=this.getRM8(e); this._shiftRot8((mr>>3)&7,e,v,this.cl); return 8; }
+      case 0xD3: { mr=this.nextB();e=this.decRM(mr);v=this.getRM16(e);this._shiftRot16((mr>>3)&7,e,v,this.cl); return 8; }
+      // ─ AAM / AAD ─
+      case 0xD4: n=this.nextB();if(!n){this.interrupt(0);return 4;} this.ah=(this.al/n)|0;this.al=this.al%n;this.szp8(this.al); return 83;
+      case 0xD5: n=this.nextB();this.al=(this.ah*n+this.al)&0xFF;this.ah=0;this.szp8(this.al); return 60;
+      case 0xD6: this.al=this.CF?0xFF:0; return 2; // SALC (undocumented)
+      case 0xD7: this.al=this.rb(this.seg2phys(this.effSeg(this.ds),(this.bx+this.al)&0xFFFF)); return 11; // XLAT
+      // ─ ESC (FPU): consume modrm/displacement, no-op ─
+      case 0xD8: case 0xD9: case 0xDA: case 0xDB:
+      case 0xDC: case 0xDD: case 0xDE: case 0xDF:
+        mr=this.nextB(); this.decRM(mr); return 2;
+      // ─ IN/OUT ─
+      case 0xE4: this.al=this.io.read8(this.nextB()); return 10;
+      case 0xE5: this.ax=this.io.read8(this.nextB()); return 10;
+      case 0xE6: this.io.write8(this.nextB(),this.al); return 10;
+      case 0xE7: this.io.write8(this.nextB(),this.al); return 10;
+      case 0xEC: this.al=this.io.read8(this.dx); return 8;
+      case 0xED: this.ax=this.io.read16(this.dx); return 8;
+      case 0xEE: this.io.write8(this.dx,this.al); return 8;
+      case 0xEF: this.io.write16(this.dx,this.ax); return 8;
+      // ─ CALL near / JMP ─
+      case 0xE8: n=this.nextSW();this.push(this.ip);this.ip=(this.ip+n)&0xFFFF; return 19;
+      case 0xE9: { const d=this.nextSW(); this.ip=(this.ip+d)&0xFFFF; return 15; }
+      case 0xEA: { off=this.nextW();seg=this.nextW();this.cs=seg;this.ip=off; return 15; }
+      case 0xEB: { const d=this.nextSB(); this.ip=(this.ip+d)&0xFFFF; return 15; }
+      // ─ LOOP ─
+      case 0xE0: n=this.nextSB();this.cx=(this.cx-1)&0xFFFF;if(this.cx&&!this.ZF)this.ip=(this.ip+n)&0xFFFF; return 6;
+      case 0xE1: n=this.nextSB();this.cx=(this.cx-1)&0xFFFF;if(this.cx&&this.ZF) this.ip=(this.ip+n)&0xFFFF; return 6;
+      case 0xE2: n=this.nextSB();this.cx=(this.cx-1)&0xFFFF;if(this.cx)          this.ip=(this.ip+n)&0xFFFF; return 6;
+      case 0xE3: n=this.nextSB();if(!this.cx) this.ip=(this.ip+n)&0xFFFF; return 6;
+      // ─ HLT ─
+      case 0xF4: this.halted=true; return 2;
+      // ─ CMC ─
+      case 0xF5: this.CF^=1; return 2;
+      // ─ Grp3 ─
+      case 0xF6: { mr=this.nextB();e=this.decRM(mr);this._grp3b((mr>>3)&7,e); return 4; }
+      case 0xF7: { mr=this.nextB();e=this.decRM(mr);this._grp3w((mr>>3)&7,e); return 4; }
+      // ─ Flags ─
+      case 0xF8: this.CF=0; return 2;
+      case 0xF9: this.CF=1; return 2;
+      case 0xFA: this.IF=0; return 2;
+      case 0xFB: this.IF=1; return 2;
+      case 0xFC: this.DF=0; return 2;
+      case 0xFD: this.DF=1; return 2;
+      // ─ Grp4/5 ─
+      case 0xFE: { mr=this.nextB();e=this.decRM(mr);const sub=(mr>>3)&7; if(sub===0)this.setRM8(e,this.INC8(this.getRM8(e))); else if(sub===1)this.setRM8(e,this.DEC8(this.getRM8(e))); return 3; }
+      case 0xFF: { mr=this.nextB();e=this.decRM(mr);this._grp5((mr>>3)&7,e); return 5; }
+      default:
+        // Unknown opcode - skip (record for debugging if hook installed)
+        if (this.unknownOps) {
+          this.unknownOps.set(op, (this.unknownOps.get(op) || 0) + 1);
+          if (this.unknownOpsAt && this.unknownOpsAt.size < 50)
+            this.unknownOpsAt.add(`${op.toString(16)}@${this.cs.toString(16)}:${(this.ip-1).toString(16)}`);
+        }
+        return 4;
+    }
+  }
+
+  _grp1b(sub, e, v, n) {
+    switch (sub) {
+      case 0: this.setRM8(e, this.ADD8(v, n)); break;
+      case 1: this.setRM8(e, this.OR8(v, n));  break;
+      case 2: this.setRM8(e, this.ADC8(v, n)); break;
+      case 3: this.setRM8(e, this.SBB8(v, n)); break;
+      case 4: this.setRM8(e, this.AND8(v, n)); break;
+      case 5: this.setRM8(e, this.SUB8(v, n)); break;
+      case 6: this.setRM8(e, this.XOR8(v, n)); break;
+      case 7: this.CMP8(v, n);                 break;
+    }
+  }
+  _grp1w(sub, e, v, n) {
+    switch (sub) {
+      case 0: this.setRM16(e,this.ADD16(v,n)); break;
+      case 1: this.setRM16(e,this.OR16(v,n));  break;
+      case 2: this.setRM16(e,this.ADC16(v,n)); break;
+      case 3: this.setRM16(e,this.SBB16(v,n)); break;
+      case 4: this.setRM16(e,this.AND16(v,n)); break;
+      case 5: this.setRM16(e,this.SUB16(v,n)); break;
+      case 6: this.setRM16(e,this.XOR16(v,n)); break;
+      case 7: this.CMP16(v,n);                 break;
+    }
+  }
+  _shiftRot8(sub, e, v, n) {
+    let r;
+    switch (sub) {
+      case 0: r=this.ROL8(v,n); break; case 1: r=this.ROR8(v,n); break;
+      case 2: r=this.RCL8(v,n); break; case 3: r=this.RCR8(v,n); break;
+      case 4: case 6: r=this.SHL8(v,n); break;
+      case 5: r=this.SHR8(v,n); break; case 7: r=this.SAR8(v,n); break;
+      default: r=v;
+    }
+    this.setRM8(e, r);
+  }
+  _shiftRot16(sub, e, v, n) {
+    let r;
+    switch (sub) {
+      case 0: r=this.ROL16(v,n); break; case 1: r=this.ROR16(v,n); break;
+      case 2: r=this.RCL16(v,n); break; case 3: r=this.RCR16(v,n); break;
+      case 4: case 6: r=this.SHL16(v,n); break;
+      case 5: r=this.SHR16(v,n); break; case 7: r=this.SAR16(v,n); break;
+      default: r=v;
+    }
+    this.setRM16(e, r);
+  }
+  _grp3b(sub, e) {
+    const v = this.getRM8(e);
+    switch (sub) {
+      case 0: case 1: this.TEST8(v, this.nextB()); break;
+      case 2: this.setRM8(e, this.NOT8(v)); break;
+      case 3: this.setRM8(e, this.NEG8(v)); break;
+      case 4: this.MUL8(v);  break;
+      case 5: this.IMUL8(v); break;
+      case 6: this.DIV8(v);  break;
+      case 7: this.IDIV8(v); break;
+    }
+  }
+  _grp3w(sub, e) {
+    const v = this.getRM16(e);
+    switch (sub) {
+      case 0: case 1: this.TEST16(v, this.nextW()); break;
+      case 2: this.setRM16(e,this.NOT16(v)); break;
+      case 3: this.setRM16(e,this.NEG16(v)); break;
+      case 4: this.MUL16(v);  break;
+      case 5: this.IMUL16(v); break;
+      case 6: this.DIV16(v);  break;
+      case 7: this.IDIV16(v); break;
+    }
+  }
+  _grp5(sub, e) {
+    let v, off, seg;
+    switch (sub) {
+      case 0: this.setRM16(e,this.INC16(this.getRM16(e))); break;
+      case 1: this.setRM16(e,this.DEC16(this.getRM16(e))); break;
+      case 2: this.push(this.ip);this.ip=this.getRM16(e); break; // CALL near r/m
+      case 3: // CALL far m16:16
+        off=this.rw(e.addr); seg=this.rw((e.addr+2)&0xFFFFF);
+        this.push(this.cs);this.push(this.ip);this.cs=seg;this.ip=off; break;
+      case 4: this.ip=this.getRM16(e); break; // JMP near r/m
+      case 5: // JMP far m16:16
+        off=this.rw(e.addr); seg=this.rw((e.addr+2)&0xFFFFF);
+        this.cs=seg;this.ip=off; break;
+      case 6: this.push(this.getRM16(e)); break; // PUSH r/m
+    }
+  }
+
+  // ── String operations ──────────────────────────────────────────────
+  _strOp(op) {
+    const rep = this.repPrefix;
+    if (rep && !this.cx) return; // REP with CX=0: no-op
+    do {
+      switch (op) {
+        case 0xA4: { // MOVSB
+          const src=this.seg2phys(this.effSeg(this.ds),this.si);
+          const dst=this.seg2phys(this.es,this.di);
+          this.wb(dst, this.rb(src));
+          const d=this.DF?-1:1;
+          this.si=(this.si+d)&0xFFFF; this.di=(this.di+d)&0xFFFF;
+          break;
+        }
+        case 0xA5: { // MOVSW
+          const src=this.seg2phys(this.effSeg(this.ds),this.si);
+          const dst=this.seg2phys(this.es,this.di);
+          this.ww(dst,this.rw(src));
+          const d=this.DF?-2:2;
+          this.si=(this.si+d)&0xFFFF; this.di=(this.di+d)&0xFFFF;
+          break;
+        }
+        case 0xA6: { // CMPSB
+          const a=this.rb(this.seg2phys(this.effSeg(this.ds),this.si));
+          const b=this.rb(this.seg2phys(this.es,this.di));
+          this.SUB8(a,b);
+          const d=this.DF?-1:1;
+          this.si=(this.si+d)&0xFFFF; this.di=(this.di+d)&0xFFFF;
+          break;
+        }
+        case 0xA7: { // CMPSW
+          const a=this.rw(this.seg2phys(this.effSeg(this.ds),this.si));
+          const b=this.rw(this.seg2phys(this.es,this.di));
+          this.SUB16(a,b);
+          const d=this.DF?-2:2;
+          this.si=(this.si+d)&0xFFFF; this.di=(this.di+d)&0xFFFF;
+          break;
+        }
+        case 0x6C: { // INSB
+          this.wb(this.seg2phys(this.es,this.di),this.io.read8(this.dx));
+          this.di=(this.di+(this.DF?-1:1))&0xFFFF;
+          break;
+        }
+        case 0x6D: { // INSW
+          const dst=this.seg2phys(this.es,this.di);
+          this.wb(dst,this.io.read8(this.dx));
+          this.wb(dst+1,this.io.read8(this.dx));
+          this.di=(this.di+(this.DF?-2:2))&0xFFFF;
+          break;
+        }
+        case 0x6E: { // OUTSB
+          this.io.write8(this.dx,this.rb(this.seg2phys(this.effSeg(this.ds),this.si)));
+          this.si=(this.si+(this.DF?-1:1))&0xFFFF;
+          break;
+        }
+        case 0x6F: { // OUTSW
+          const src=this.seg2phys(this.effSeg(this.ds),this.si);
+          this.io.write8(this.dx,this.rb(src));
+          this.io.write8(this.dx,this.rb(src+1));
+          this.si=(this.si+(this.DF?-2:2))&0xFFFF;
+          break;
+        }
+        case 0xAA: { // STOSB
+          this.wb(this.seg2phys(this.es,this.di),this.al);
+          this.di=(this.di+(this.DF?-1:1))&0xFFFF;
+          break;
+        }
+        case 0xAB: { // STOSW
+          this.ww(this.seg2phys(this.es,this.di),this.ax);
+          this.di=(this.di+(this.DF?-2:2))&0xFFFF;
+          break;
+        }
+        case 0xAC: { // LODSB
+          this.al=this.rb(this.seg2phys(this.effSeg(this.ds),this.si));
+          this.si=(this.si+(this.DF?-1:1))&0xFFFF;
+          break;
+        }
+        case 0xAD: { // LODSW
+          this.ax=this.rw(this.seg2phys(this.effSeg(this.ds),this.si));
+          this.si=(this.si+(this.DF?-2:2))&0xFFFF;
+          break;
+        }
+        case 0xAE: { // SCASB
+          const v=this.rb(this.seg2phys(this.es,this.di));
+          this.SUB8(this.al,v);
+          this.di=(this.di+(this.DF?-1:1))&0xFFFF;
+          break;
+        }
+        case 0xAF: { // SCASW
+          const v=this.rw(this.seg2phys(this.es,this.di));
+          this.SUB16(this.ax,v);
+          this.di=(this.di+(this.DF?-2:2))&0xFFFF;
+          break;
+        }
+      }
+      if (rep) {
+        this.cx = (this.cx - 1) & 0xFFFF;
+        if (!this.cx) break;
+        // ZF check only applies to CMPS/SCAS
+        if (op === 0xA6 || op === 0xA7 || op === 0xAE || op === 0xAF) {
+          if (rep === 0xF2 && this.ZF)  break; // REPNE: stop if match
+          if (rep === 0xF3 && !this.ZF) break; // REPE:  stop if no match
+        }
+      }
+    } while (rep && this.cx);
+  }
+
+  reset() {
+    this.ax=this.bx=this.cx=this.dx=0;
+    this.si=this.di=this.bp=0;
+    this.sp=0xFFFE;
+    this.ip=0xFFF0; this.cs=0xF000;
+    this.ds=this.es=this.ss=0;
+    this.flags=0x0002;
+    this.halted=false;
+    this.segOvr=-1;
+    this.repPrefix=0;
+    this._interruptQueue=[];
+    this.totalCycles=0;
+  }
+}
+
+// ===== js/pic.js =====
+// 8259A Programmable Interrupt Controller (PC-98: master 0x00/0x02, slave 0x08/0x0A)
+// Master vector base 0x08 (IRQ0-7), slave vector base 0x10 (IRQ8-15)
+class PIC {
+  constructor(io, cpu) {
+    this.cpu = cpu;
+
+    this.master = this._mkUnit(0x08);
+    this.slave  = this._mkUnit(0x10);
+
+    // Master PIC: cmd 0x00, data 0x02
+    io.register(0x00, () => this._readCmd(this.master), (p,v) => this._writeCmd(this.master, v));
+    io.register(0x02, () => this.master.mask,           (p,v) => this._writeData(this.master, v));
+    // Slave PIC: cmd 0x08, data 0x0A
+    io.register(0x08, () => this._readCmd(this.slave),  (p,v) => this._writeCmd(this.slave, v));
+    io.register(0x0A, () => this.slave.mask,            (p,v) => this._writeData(this.slave, v));
+  }
+
+  _mkUnit(base) {
+    return { base, mask: 0xFF, irr: 0, isr: 0, icwStep: 0, readISR: false };
+  }
+
+  _readCmd(u) {
+    return u.readISR ? u.isr : u.irr;
+  }
+
+  _writeCmd(u, v) {
+    if (v & 0x10) {
+      // ICW1: start init sequence
+      u.icwStep = 1;
+      u.mask = 0;
+      u.irr = 0;
+      u.isr = 0;
+      u.readISR = false;
+    } else if ((v & 0x18) === 0x08) {
+      // OCW3
+      if (v & 0x02) u.readISR = !!(v & 0x01);
+    } else if (v === 0x20) {
+      // Non-specific EOI
+      for (let i = 0; i < 8; i++) {
+        if (u.isr & (1 << i)) { u.isr &= ~(1 << i); break; }
+      }
+    } else if ((v & 0xE0) === 0x60) {
+      // Specific EOI
+      u.isr &= ~(1 << (v & 7));
+    }
+  }
+
+  _writeData(u, v) {
+    if (u.icwStep === 1) {
+      // ICW2: vector base
+      u.base = v & 0xF8;
+      u.icwStep = 2;
+    } else if (u.icwStep === 2) {
+      // ICW3
+      u.icwStep = 3;
+    } else if (u.icwStep === 3) {
+      // ICW4
+      u.icwStep = 0;
+    } else {
+      // OCW1: interrupt mask
+      u.mask = v;
+    }
+  }
+
+  // Raise hardware IRQ (0-15)
+  raise(irq) {
+    const u  = irq < 8 ? this.master : this.slave;
+    const ir = irq & 7;
+    const bit = 1 << ir;
+    if (u.mask & bit) return;        // masked
+    if (u.isr & bit)  return;        // still being serviced
+    u.irr |= bit;
+    // Simplified ack: mark in-service immediately and queue to CPU
+    u.irr &= ~bit;
+    u.isr |= bit;
+    this.cpu.requestInterrupt(u.base + ir);
+  }
+
+  reset() {
+    this.master.mask = 0xFF; this.master.irr = 0; this.master.isr = 0;
+    this.master.icwStep = 0; this.master.readISR = false; this.master.base = 0x08;
+    this.slave.mask = 0xFF;  this.slave.irr = 0;  this.slave.isr = 0;
+    this.slave.icwStep = 0;  this.slave.readISR = false;  this.slave.base = 0x10;
+  }
+}
+
+// ===== js/pit.js =====
+// 8253 Programmable Interval Timer
+class PIT {
+  constructor(io, pic) {
+    this.pic = pic;
+    this._counters = [
+      { mode: 2, count: 0, latch: 0, reload: 0x10000, lowByte: true, out: true },
+      { mode: 2, count: 0, latch: 0, reload: 0,       lowByte: true, out: true },
+      { mode: 2, count: 0, latch: 0, reload: 0,       lowByte: true, out: true },
+    ];
+    this._cycleAccum = 0;
+    // PC-98: PIT ports at 0x71,0x73,0x75,0x77
+    io.register(0x71, () => this._read(0), (p,v) => this._write(0,v));
+    io.register(0x73, () => this._read(1), (p,v) => this._write(1,v));
+    io.register(0x75, () => this._read(2), (p,v) => this._write(2,v));
+    io.register(0x77, () => 0,             (p,v) => this._control(v));
+  }
+
+  _control(v) {
+    const ch = (v >> 6) & 3;
+    if (ch === 3) return; // read-back
+    const rw = (v >> 4) & 3;
+    const mode = (v >> 1) & 7;
+    const c = this._counters[ch];
+    c.mode = mode;
+    c.lowByte = true;
+    if (rw === 0) { c.latch = c.count; }
+  }
+
+  _read(ch) {
+    const c = this._counters[ch];
+    if (c.lowByte) { c.lowByte = false; return c.count & 0xFF; }
+    c.lowByte = true;
+    return (c.count >> 8) & 0xFF;
+  }
+
+  _write(ch, v) {
+    const c = this._counters[ch];
+    if (c.lowByte) { c.latch = v; c.lowByte = false; }
+    else {
+      c.reload = c.latch | (v << 8);
+      if (!c.reload) c.reload = 0x10000;
+      c.count  = c.reload;
+      c.lowByte = true;
+    }
+  }
+
+  // Called with CPU cycles elapsed, generates IRQ0 (timer tick)
+  tick(cycles) {
+    this._cycleAccum += cycles;
+    // PC-98 timer: ~2.4576MHz, IRQ0 at ~100Hz (10ms)
+    // 2457600 / 100 = 24576 cycles per tick (approximately)
+    const CYCLES_PER_TICK = 24576;
+    while (this._cycleAccum >= CYCLES_PER_TICK) {
+      this._cycleAccum -= CYCLES_PER_TICK;
+      this.pic.raise(0); // IRQ0 → INT 08h
+    }
+  }
+
+  reset() {
+    this._cycleAccum = 0;
+    for (const c of this._counters) {
+      c.count = c.reload = 0x10000;
+      c.lowByte = true;
+    }
+  }
+}
+
+// ===== js/fdi.js =====
+// FDI disk image format parser
+// Header: 4096 bytes (offset 0x1000), then raw sector data
+// Layout: tracks * sides * sectors * sector_size
+class FDI {
+  constructor(buffer) {
+    const u8 = new Uint8Array(buffer);
+    const u32 = (off) => u8[off]|(u8[off+1]<<8)|(u8[off+2]<<16)|(u8[off+3]<<24);
+
+    this.headerSize   = u32(8);   // 0x1000 = 4096
+    this.diskSize     = u32(12);  // raw data size
+    this.sectorSize   = u32(16);  // bytes per sector (1024 for 2HD)
+    this.sectorsPerTrk= u32(20);  // sectors per track
+    this.sides        = u32(24);  // number of sides
+    this.tracks       = u32(28);  // tracks per side
+
+    // Defaults for standard 2HD if header seems zero
+    if (!this.sectorSize)    this.sectorSize    = 1024;
+    if (!this.sectorsPerTrk) this.sectorsPerTrk = 8;
+    if (!this.sides)         this.sides         = 2;
+    if (!this.tracks)        this.tracks        = 77;
+    if (!this.headerSize)    this.headerSize    = 4096;
+
+    // Extract raw disk data
+    this.data = u8.slice(this.headerSize);
+    this.writeProtect = false;
+  }
+
+  // Compute byte offset for given CHS (0-based cylinder, 0-based head, 1-based sector)
+  _offset(cylinder, head, sector) {
+    const trackIdx = cylinder * this.sides + head;
+    const secIdx   = sector - 1; // sectors are 1-based
+    return (trackIdx * this.sectorsPerTrk + secIdx) * this.sectorSize;
+  }
+
+  // Read one sector into dst Uint8Array
+  readSector(cylinder, head, sector, dst) {
+    const off = this._offset(cylinder, head, sector);
+    if (off + this.sectorSize > this.data.length) return false;
+    dst.set(this.data.subarray(off, off + this.sectorSize));
+    return true;
+  }
+
+  // Write one sector from src Uint8Array
+  writeSector(cylinder, head, sector, src) {
+    if (this.writeProtect) return false;
+    const off = this._offset(cylinder, head, sector);
+    if (off + this.sectorSize > this.data.length) return false;
+    this.data.set(src.subarray(0, this.sectorSize), off);
+    return true;
+  }
+
+  isValid() {
+    return this.data && this.data.length > 0;
+  }
+
+  get typeStr() {
+    if (this.sides === 2 && this.tracks === 77 && this.sectorSize === 1024) return '2HD';
+    if (this.sides === 2 && this.tracks === 80 && this.sectorSize === 512)  return '2DD';
+    return 'FDI';
+  }
+}
+
+// ===== js/fdc.js =====
+// NEC µPD765A Floppy Disk Controller
+// PC-98 ports: 0x90 (status), 0x92 (data), 0x94 (motor control)
+class FDC {
+  constructor(io, pic, mem) {
+    this.pic  = pic;
+    this.mem  = mem;
+    this.disk = [null, null]; // FDI images for drive 0 and 1
+
+    this._msr  = 0x80; // Main Status Register (RQM=1, ready)
+    this._cmd  = [];   // command bytes
+    this._res  = [];   // result bytes
+    this._state= 'idle'; // 'idle','cmd','exec','result'
+    this._buf  = new Uint8Array(1024);
+
+    // Track/head/sector for DMA transfer
+    this._C = 0; this._H = 0; this._R = 0; this._N = 0;
+    this._drive  = 0;
+    this._motor  = [false, false];
+    this._dmaAddr= 0;
+    this._dmaCount=0;
+    this._intPending = false;
+
+    io.register(0x90, () => this._readMSR(), null);
+    io.register(0x92, () => this._readData(), (p,v) => this._writeData(v));
+    io.register(0x94, null, (p,v) => this._writeMotor(v));
+    io.register(0xBE, null, (p,v) => {}); // density select (ignore)
+    io.register(0x4BE, null, (p,v) => {}); // FDD wait
+  }
+
+  mount(driveNo, fdi) {
+    this.disk[driveNo] = fdi;
+  }
+
+  _readMSR() {
+    let msr = 0x80; // RQM
+    if (this._state === 'result' && this._res.length > 0) msr |= 0x40; // DIO=1 (output)
+    if (this._state === 'cmd')    msr |= 0x10; // FDC busy
+    if (this._state === 'exec')   msr |= 0x20; // exec phase
+    return msr;
+  }
+
+  _readData() {
+    if (this._state === 'result' && this._res.length > 0) {
+      const b = this._res.shift();
+      if (this._res.length === 0) {
+        this._state = 'idle';
+      }
+      return b;
+    }
+    return 0;
+  }
+
+  _writeData(v) {
+    if (this._state === 'idle' || this._state === 'cmd') {
+      this._state = 'cmd';
+      this._cmd.push(v);
+      this._tryExecute();
+    }
+  }
+
+  _writeMotor(v) {
+    // bit0=drive0 motor, bit1=drive1 motor, bit2=drive select, bit4=?
+    this._motor[0] = !!(v & 0x01);
+    this._motor[1] = !!(v & 0x02);
+    this._drive = (v >> 4) & 1;
+  }
+
+  _tryExecute() {
+    if (!this._cmd.length) return;
+    const cmd = this._cmd[0] & 0x1F;
+
+    // Detect complete command
+    const cmdLen = {
+      0x03: 3, // Specify
+      0x04: 2, // Sense Drive Status
+      0x07: 2, // Recalibrate
+      0x08: 1, // Sense Interrupt
+      0x0F: 3, // Seek
+      0x02: 9, // Read Track
+      0x05: 9, // Write Data
+      0x06: 9, // Read Data
+      0x09: 9, // Write Deleted Data
+      0x0A: 2, // Read ID
+      0x0C: 9, // Read Deleted Data
+      0x0D: 6, // Format Track
+      0x11: 9, // Scan Equal
+      0x19: 9, // Scan Low
+      0x1D: 9, // Scan High
+    };
+
+    const needed = cmdLen[cmd] || 1;
+    if (this._cmd.length < needed) return;
+
+    this._state = 'exec';
+    this._execute();
+    this._cmd = [];
+  }
+
+  _execute() {
+    const cmd = this._cmd[0] & 0x1F;
+    const mt  = !!(this._cmd[0] & 0x80);
+    const mfm = !!(this._cmd[0] & 0x40);
+
+    switch (cmd) {
+      case 0x03: // Specify
+        this._state = 'idle'; return;
+
+      case 0x04: // Sense Drive Status
+        this._res = [0x28]; // ready, two-sided, disk present
+        this._state = 'result'; return;
+
+      case 0x07: // Recalibrate
+        this._C = 0;
+        this._sendInterrupt();
+        this._state = 'idle'; return;
+
+      case 0x08: // Sense Interrupt Status
+        this._res = [0x20 | this._drive, this._C];
+        this._state = 'result';
+        this._intPending = false; return;
+
+      case 0x0F: // Seek
+        this._drive = this._cmd[1] & 3;
+        this._C = this._cmd[2];
+        this._sendInterrupt();
+        this._state = 'idle'; return;
+
+      case 0x06: case 0x0C: // Read Data / Read Deleted Data
+        this._doRead(); return;
+
+      case 0x05: case 0x09: // Write Data / Write Deleted Data
+        this._doWrite(); return;
+
+      case 0x0A: // Read ID
+        this._res = [0x00, 0x00, this._C, this._H, 0x01, 0x03, 0x08, 0x00];
+        this._sendInterrupt();
+        this._state = 'result'; return;
+
+      case 0x0D: // Format Track
+        this._state = 'idle'; return;
+
+      default:
+        this._state = 'idle'; return;
+    }
+  }
+
+  _doRead() {
+    const drv = this._cmd[1] & 3;
+    const C   = this._cmd[2];
+    const H   = this._cmd[3];
+    const R   = this._cmd[4];
+    const N   = this._cmd[5];
+    const EOT = this._cmd[6];
+    const fdi = this.disk[drv];
+
+    this._C = C; this._H = H; this._R = R;
+
+    if (!fdi) {
+      this._res = [0x40, 0x00, C, H, R, N];
+      this._state = 'result';
+      return;
+    }
+
+    const sectorSize = 128 << N; // N=3 → 1024
+    const buf = new Uint8Array(sectorSize);
+
+    // Read sectors R through EOT (real FDC multi-sector transfer).
+    // Cap by DMA count so we never overflow the programmed buffer.
+    const maxBytes = this._dmaCount > 0 ? this._dmaCount + 1 : sectorSize;
+    let transferred = 0;
+    let curR = R;
+    while (curR <= EOT && transferred + sectorSize <= maxBytes) {
+      const ok = fdi.readSector(C, H, curR, buf);
+      if (!ok) {
+        this._res = [0x40, 0x04, C, H, curR, N];
+        this._state = 'result';
+        return;
+      }
+      for (let i = 0; i < sectorSize; i++) {
+        this.mem.write8(this._dmaAddr + i, buf[i]);
+      }
+      this._dmaAddr += sectorSize;
+      transferred  += sectorSize;
+      curR++;
+    }
+
+    // Status: next sector number (or EOT+1)
+    this._res = [0x00, 0x00, C, H, curR, N];
+    this._sendInterrupt();
+    this._state = 'result';
+  }
+
+  _doWrite() {
+    const drv = this._cmd[1] & 3;
+    const C   = this._cmd[2];
+    const H   = this._cmd[3];
+    const R   = this._cmd[4];
+    const N   = this._cmd[5];
+    const fdi = this.disk[drv];
+
+    if (!fdi || fdi.writeProtect) {
+      this._res = [0x40, 0x02, C, H, R, N];
+      this._state = 'result';
+      return;
+    }
+
+    const sectorSize = 128 << N;
+    const buf = new Uint8Array(sectorSize);
+    const dmaAddr = this._dmaAddr;
+    for (let i = 0; i < sectorSize; i++) {
+      buf[i] = this.mem.read8(dmaAddr + i);
+    }
+    fdi.writeSector(C, H, R, buf);
+    this._dmaAddr += sectorSize;
+
+    this._res = [0x00, 0x00, C, H, R+1, N];
+    this._sendInterrupt();
+    this._state = 'result';
+  }
+
+  _sendInterrupt() {
+    this._intPending = true;
+    this.pic.raise(6); // IRQ6 → FDC
+  }
+
+  setDMA(addr, count) {
+    this._dmaAddr  = addr;
+    this._dmaCount = count;
+  }
+
+  reset() {
+    this._cmd = [];
+    this._res = [];
+    this._state = 'idle';
+    this._intPending = false;
+  }
+}
+
+// ===== js/video.js =====
+// PC-98 Video System
+// - Text VRAM:  0xA0000-0xA3FFF (character codes + attributes, 80×25)
+// - GVRAM:      0xA8000-0xBFFFF (4 planes, 640×400 pixels)
+// - CRT controller at 0xC0-0xCF, 0xD0-0xD5
+class Video {
+  // Optional pre-rendered CG ROM bytes (Uint8Array); null = rasterize via canvas font
+  static cgrom = null;
+
+  constructor(canvas, mem, io) {
+    this.mem    = mem;
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.imgData= this.ctx.createImageData(640, 400);
+
+    // GVRAM: 4 planes × 2 pages. Each page is a 32KB window (640×400/8 = 32000
+    // bytes used); page 1 lives at offset 0x8000 within each plane array.
+    // Port 0xA6 selects the CPU-access page, 0xA4 the displayed page.
+    this.plane  = [
+      new Uint8Array(65536), // Blue  (plane 0)
+      new Uint8Array(65536), // Red   (plane 1)
+      new Uint8Array(65536), // Green (plane 2)
+      new Uint8Array(65536), // Intensity (plane 3)
+    ];
+    this._dispPage = 0; // port 0xA4: displayed page
+    this._accPage  = 0; // port 0xA6: CPU access page
+
+    // Text VRAM maps
+    // PC-98 text: 0xA0000-0xA1FFF = character codes (word-addressed, 80 cols × 25 rows)
+    //             0xA2000-0xA3FFF = attributes
+    // Each text cell: code at A0000 + (row*80+col)*2, attr at A2000 + same
+
+    this._grcgMode   = 0;     // port 0x7C: bit7=on, bit6=TDW/RMW, bits0-3=plane protect
+    this._grcgTile   = new Uint8Array(4);
+    this._grcgTileIdx= 0;
+    this._palette    = new Uint32Array(16); // canvas Uint32 (0xAABBGGRR)
+    this._initPalette();
+
+    this._mode16     = true;  // 16-color mode (port 0x6A bit0)
+    this._palIdx     = 0;
+    this._palR = new Uint8Array(16);
+    this._palG = new Uint8Array(16);
+    this._palB = new Uint8Array(16);
+
+    // Cycle source for VSYNC timing (injected by pc98.js); fallback counter
+    this.getCycles = null;
+    this._statusReads = 0;
+
+    // GDC status (text 0x60, graphics 0xA0): bit5=VSYNC, bit2=FIFO empty
+    const gdcStatus = () => 0x04 | (this._vsyncActive() ? 0x20 : 0);
+    io.register(0x60, gdcStatus, (p,v) => {});  // text GDC param/status
+    io.register(0x62, () => 0x04, (p,v) => {}); // text GDC command
+    io.register(0xA0, gdcStatus, (p,v) => {});  // graphics GDC param/status
+    io.register(0xA2, () => 0x04, (p,v) => {}); // graphics GDC command
+    io.register(0x64, null, (p,v) => {});       // CRT interrupt reset
+
+    // Mode flip-flops
+    io.register(0x68, null, (p,v) => {});
+    io.register(0x6A, null, (p,v) => { if (v === 0x01) this._mode16 = true; else if (v === 0x00) this._mode16 = false; });
+
+    // GRCG: mode 0x7C, tile 0x7E
+    io.register(0x7C, () => this._grcgMode, (p,v) => { this._grcgMode = v; this._grcgTileIdx = 0; });
+    io.register(0x7E, null, (p,v) => { this._grcgTile[this._grcgTileIdx] = v; this._grcgTileIdx = (this._grcgTileIdx + 1) & 3; });
+
+    // Page select: 0xA4 = displayed page, 0xA6 = CPU access page
+    io.register(0xA4, () => this._dispPage, (p,v) => { this._dispPage = v & 1; this._dirty = true; });
+    io.register(0xA6, () => this._accPage,  (p,v) => { this._accPage  = v & 1; });
+
+    // CG ROM (kanji font) access: 0xA1=JIS 2nd byte-0x20, 0xA3=JIS 1st byte-0x20,
+    // 0xA5=line select (bit5: 0=left half, 1=right half), 0xA9=font data
+    this._cgLo = 0; this._cgHi = 0; this._cgLine = 0;
+    this._cgCache = new Map();
+    io.register(0xA1, () => this._cgLo, (p,v) => { this._cgLo = v; });
+    io.register(0xA3, () => this._cgHi, (p,v) => { this._cgHi = v; });
+    io.register(0xA5, () => this._cgLine, (p,v) => { this._cgLine = v; });
+    io.register(0xA9, () => this._readCG(), (p,v) => {});
+
+    // Analog palette: 0xA8=index, 0xAA=green, 0xAC=red, 0xAE=blue (4-bit each)
+    io.register(0xA8, () => this._palIdx, (p,v) => { this._palIdx = v & 0x0F; });
+    io.register(0xAA, () => this._palG[this._palIdx], (p,v) => { this._palG[this._palIdx] = v & 0x0F; this._updatePalette(this._palIdx); });
+    io.register(0xAC, () => this._palR[this._palIdx], (p,v) => { this._palR[this._palIdx] = v & 0x0F; this._updatePalette(this._palIdx); });
+    io.register(0xAE, () => this._palB[this._palIdx], (p,v) => { this._palB[this._palIdx] = v & 0x0F; this._updatePalette(this._palIdx); });
+
+    // EGC (Enhanced Graphic Controller) at 0x4A0-0x4AE (16-bit registers)
+    // Used for hardware-accelerated VRAM blits (bit-aligned copy, ROP, pattern fill, etc.)
+    this._egcRegs = new Uint16Array(8);   // 0x4A0,4A2,4A4,4A6,4A8,4AA,4AC,4AE
+    this._egcLatch= new Uint8Array(4);    // 4-plane read latch
+    this._egcEnabled = false;
+    this._egcLogCount = 0;
+    for (let i = 0; i < 8; i++) {
+      const regIdx = i;
+      const port = 0x4A0 + i * 2;
+      io.register(port,
+        () => this._egcRegs[regIdx] & 0xFF,
+        (p, v) => {
+          this._egcRegs[regIdx] = (this._egcRegs[regIdx] & 0xFF00) | v;
+          this._egcOnWrite(regIdx);
+        });
+      io.register(port + 1,
+        () => (this._egcRegs[regIdx] >> 8) & 0xFF,
+        (p, v) => {
+          this._egcRegs[regIdx] = (this._egcRegs[regIdx] & 0x00FF) | (v << 8);
+          this._egcOnWrite(regIdx);
+        });
+    }
+
+    // 8-color digital palette
+    this._digitalPal = [
+      0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
+      0xFFAA0000, 0xFFAA00AA, 0xFFAA5500, 0xFFAAAAAA,
+      0xFF555555, 0xFF5555FF, 0xFF55FF55, 0xFF55FFFF,
+      0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF,
+    ];
+    this._palette.set(this._digitalPal);
+
+    // Font ROM (16x16 kanji or 8x16 ANK)
+    this._font = null;
+    this._buildDefaultFont();
+
+    // VRAM write intercept
+    this._setupVRAMHooks();
+
+    this._showText = true;
+    this._showGraph= true;
+    this._dirty    = true;
+  }
+
+  // Called whenever an EGC register is written
+  _egcOnWrite(regIdx) {
+    // reg[0]=0x4A0: access control; if any write → EGC is being used
+    if (regIdx === 0) {
+      const was = this._egcEnabled;
+      this._egcEnabled = (this._egcRegs[0] !== 0);
+      if (!was && this._egcEnabled && this._egcLogCount < 20) {
+        this._egcLogCount++;
+        const regs = Array.from(this._egcRegs).map(r => '0x'+r.toString(16).padStart(4,'0'));
+        console.log('[EGC] enabled, regs:', regs.join(' '));
+      }
+    }
+  }
+
+  // Debug: return per-plane statistics (call from browser console: pc98.video.debugPlanes())
+  debugPlanes() {
+    const r = {};
+    for (let pg = 0; pg < 2; pg++) {
+      for (let p = 0; p < 4; p++) {
+        let nonZero = 0, sum = 0;
+        const base = pg << 15;
+        for (let i = 0; i < 32000; i++) { const v = this.plane[p][base + i]; if (v) nonZero++; sum = (sum + v) & 0xFFFF; }
+        r[`pg${pg}p${p}`] = { nonZero, sum: '0x'+sum.toString(16) };
+      }
+    }
+    console.log('VRAM planes:', JSON.stringify(r), 'disp=', this._dispPage, 'acc=', this._accPage);
+    return r;
+  }
+
+  _initPalette() {
+    this._palette.set([
+      0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
+      0xFFAA0000, 0xFFAA00AA, 0xFFAA5500, 0xFFAAAAAA,
+      0xFF555555, 0xFF5555FF, 0xFF55FF55, 0xFF55FFFF,
+      0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF,
+    ]);
+  }
+
+  // VSYNC simulation: ~56.4Hz frame = ~177240 CPU cycles at 10MHz.
+  // VSYNC active during the last ~4% of each frame.
+  _vsyncActive() {
+    if (this.getCycles) {
+      const pos = this.getCycles() % 177240;
+      return pos >= 170000;
+    }
+    // Fallback: toggle pattern so polling loops always see both edges
+    this._statusReads++;
+    return (this._statusReads % 16) >= 13;
+  }
+
+  // CG ROM read: returns one byte of the current glyph row
+  // Line register bit5: 1 = LEFT half (high bits), 0 = RIGHT half (low bits)
+  _readCG() {
+    const g = this._getGlyph();
+    const row = this._cgLine & 0x0F;
+    const w = g[row];
+    // ANK (8-dot) glyphs live in the high byte regardless of half select
+    if ((this._cgHi & 0x7F) === 0) return (w >> 8) & 0xFF;
+    const left = !!(this._cgLine & 0x20);
+    return left ? ((w >> 8) & 0xFF) : (w & 0xFF);
+  }
+
+  // Rasterize the glyph for the current CG code (16×16, Uint16Array of rows)
+  _getGlyph() {
+    const key = ((this._cgHi & 0xFF) << 8) | (this._cgLo & 0xFF);
+    let g = this._cgCache.get(key);
+    if (g) return g;
+    g = new Uint16Array(16);
+
+    let ch = null;
+    // CG code format: 0xA3 = JIS 1st byte - 0x20, 0xA1 = JIS 2nd byte (raw)
+    const j1 = (this._cgHi & 0x7F) + 0x20;
+    const j2 = this._cgLo & 0x7F;
+
+    // Pre-rendered CG ROM (cgrom.bin, see tools/gen_cgrom.py). Used on
+    // runtimes without a Japanese canvas font / TextDecoder('shift_jis').
+    const rom = Video.cgrom;
+    if (rom) {
+      if ((this._cgHi & 0x7F) === 0) {
+        const base = (this._cgLo & 0xFF) * 16;
+        for (let y = 0; y < 16; y++) g[y] = rom[base + y] << 8;
+      } else if (j1 >= 0x21 && j1 <= 0x7E && j2 >= 0x21 && j2 <= 0x7E) {
+        const base = 4096 + ((j1 - 0x21) * 94 + (j2 - 0x21)) * 32;
+        for (let y = 0; y < 16; y++) g[y] = (rom[base + y * 2] << 8) | rom[base + y * 2 + 1];
+      }
+      this._cgCache.set(key, g);
+      return g;
+    }
+    try {
+      if ((this._cgHi & 0x7F) === 0) {
+        // ANK (8×16): code = low byte
+        const c = this._cgLo & 0xFF;
+        if (c >= 0xA1 && c <= 0xDF) ch = String.fromCharCode(0xFF61 + c - 0xA1); // halfwidth kana
+        else if (c >= 0x20 && c < 0x7F) ch = String.fromCharCode(c);
+      } else {
+        // Kanji: JIS → Shift_JIS → Unicode
+        const s1 = ((j1 + 1) >> 1) + (j1 < 0x5F ? 0x70 : 0xB0);
+        const s2 = j2 + ((j1 & 1) ? (j2 < 0x60 ? 0x1F : 0x20) : 0x7E);
+        ch = new TextDecoder('shift_jis').decode(new Uint8Array([s1, s2]));
+      }
+    } catch (e) { ch = null; }
+
+    if (ch && typeof document !== 'undefined') {
+      // Browser: render with a Japanese monospace font
+      if (!this._cgCanvas) {
+        this._cgCanvas = document.createElement('canvas');
+        this._cgCanvas.width = 16; this._cgCanvas.height = 16;
+      }
+      const cx = this._cgCanvas.getContext('2d', { willReadFrequently: true });
+      cx.clearRect(0, 0, 16, 16);
+      cx.fillStyle = '#fff';
+      cx.font = '16px "MS Gothic", "Osaka-Mono", monospace';
+      cx.textBaseline = 'top';
+      cx.fillText(ch, 0, 0);
+      const d = cx.getImageData(0, 0, 16, 16).data;
+      for (let y = 0; y < 16; y++) {
+        let row = 0;
+        for (let x = 0; x < 16; x++) {
+          if (d[(y * 16 + x) * 4 + 3] > 96) row |= 0x8000 >> x;
+        }
+        g[y] = row;
+      }
+    } else if (ch) {
+      // Headless fallback: distinct box pattern per glyph
+      g[1] = 0x7FFE; g[14] = 0x7FFE;
+      let h = (key * 2654435761) >>> 0;
+      for (let y = 2; y < 14; y++) {
+        g[y] = 0x4002 | (h & 0x0FF0);
+        h = (h * 16807 + 7) >>> 0;
+      }
+    }
+    this._cgCache.set(key, g);
+    return g;
+  }
+
+  _updatePalette(i) {
+    const r = this._palR[i] * 17, g = this._palG[i] * 17, b = this._palB[i] * 17;
+    this._palette[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
+    this._dirty = true;
+  }
+
+  _buildDefaultFont() {
+    // Build an 8×16 ASCII font
+    // Using a minimal built-in bitmap font
+    this._font = new Uint8Array(256 * 16);
+    const glyphs = [
+      // Space (0x20)
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      // ! (0x21)
+      [0,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x18,0,0,0,0,0,0],
+    ];
+    // Fill in basic font data for printable chars
+    // Using a simple 5x7 style font encoded as 8 bytes
+    this._fillFont();
+  }
+
+  _fillFont() {
+    // Basic 8x16 font for ASCII 0x20-0x7E
+    // We encode each character as 16 bytes (rows), each byte = 8 pixels
+    const data = this._font;
+
+    // Helper: set glyph
+    const sg = (c, rows) => {
+      const base = c * 16;
+      for (let i = 0; i < 16; i++) data[base + i] = rows[i] || 0;
+    };
+
+    // Numbers
+    sg(0x30,[0,0x3C,0x66,0x6E,0x76,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x31,[0,0x18,0x38,0x18,0x18,0x18,0x18,0x18,0x7E,0,0,0,0,0,0,0]);
+    sg(0x32,[0,0x3C,0x66,0x06,0x0C,0x18,0x30,0x60,0x7E,0,0,0,0,0,0,0]);
+    sg(0x33,[0,0x3C,0x66,0x06,0x1C,0x06,0x06,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x34,[0,0x0C,0x1C,0x2C,0x4C,0x7E,0x0C,0x0C,0x0C,0,0,0,0,0,0,0]);
+    sg(0x35,[0,0x7E,0x60,0x60,0x7C,0x06,0x06,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x36,[0,0x1C,0x30,0x60,0x7C,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x37,[0,0x7E,0x06,0x0C,0x18,0x18,0x18,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x38,[0,0x3C,0x66,0x66,0x3C,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x39,[0,0x3C,0x66,0x66,0x66,0x3E,0x06,0x0C,0x38,0,0,0,0,0,0,0]);
+    // Uppercase letters
+    sg(0x41,[0,0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x66,0,0,0,0,0,0,0]);
+    sg(0x42,[0,0x7C,0x66,0x66,0x7C,0x66,0x66,0x66,0x7C,0,0,0,0,0,0,0]);
+    sg(0x43,[0,0x3C,0x66,0x60,0x60,0x60,0x60,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x44,[0,0x78,0x6C,0x66,0x66,0x66,0x66,0x6C,0x78,0,0,0,0,0,0,0]);
+    sg(0x45,[0,0x7E,0x60,0x60,0x7C,0x60,0x60,0x60,0x7E,0,0,0,0,0,0,0]);
+    sg(0x46,[0,0x7E,0x60,0x60,0x7C,0x60,0x60,0x60,0x60,0,0,0,0,0,0,0]);
+    sg(0x47,[0,0x3C,0x66,0x60,0x60,0x6E,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x48,[0,0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x66,0,0,0,0,0,0,0]);
+    sg(0x49,[0,0x3C,0x18,0x18,0x18,0x18,0x18,0x18,0x3C,0,0,0,0,0,0,0]);
+    sg(0x4A,[0,0x1E,0x0C,0x0C,0x0C,0x0C,0x6C,0x6C,0x38,0,0,0,0,0,0,0]);
+    sg(0x4B,[0,0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0x63,0,0,0,0,0,0,0]);
+    sg(0x4C,[0,0x60,0x60,0x60,0x60,0x60,0x60,0x60,0x7E,0,0,0,0,0,0,0]);
+    sg(0x4D,[0,0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0x63,0,0,0,0,0,0,0]);
+    sg(0x4E,[0,0x63,0x73,0x7B,0x6F,0x67,0x63,0x63,0x63,0,0,0,0,0,0,0]);
+    sg(0x4F,[0,0x3C,0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x50,[0,0x7C,0x66,0x66,0x7C,0x60,0x60,0x60,0x60,0,0,0,0,0,0,0]);
+    sg(0x51,[0,0x3C,0x66,0x66,0x66,0x66,0x6E,0x3C,0x06,0,0,0,0,0,0,0]);
+    sg(0x52,[0,0x7C,0x66,0x66,0x7C,0x6C,0x66,0x66,0x63,0,0,0,0,0,0,0]);
+    sg(0x53,[0,0x3C,0x66,0x60,0x3C,0x06,0x06,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x54,[0,0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x55,[0,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x56,[0,0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x57,[0,0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0x63,0,0,0,0,0,0,0]);
+    sg(0x58,[0,0x63,0x63,0x36,0x1C,0x1C,0x36,0x63,0x63,0,0,0,0,0,0,0]);
+    sg(0x59,[0,0x66,0x66,0x66,0x3C,0x18,0x18,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x5A,[0,0x7E,0x06,0x0C,0x18,0x30,0x60,0x60,0x7E,0,0,0,0,0,0,0]);
+    // Lowercase
+    sg(0x61,[0,0,0,0x3C,0x06,0x3E,0x66,0x66,0x3E,0,0,0,0,0,0,0]);
+    sg(0x62,[0,0x60,0x60,0x7C,0x66,0x66,0x66,0x66,0x7C,0,0,0,0,0,0,0]);
+    sg(0x63,[0,0,0,0x3C,0x66,0x60,0x60,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x64,[0,0x06,0x06,0x3E,0x66,0x66,0x66,0x66,0x3E,0,0,0,0,0,0,0]);
+    sg(0x65,[0,0,0,0x3C,0x66,0x7E,0x60,0x60,0x3C,0,0,0,0,0,0,0]);
+    sg(0x66,[0,0x1C,0x30,0x30,0x7C,0x30,0x30,0x30,0x30,0,0,0,0,0,0,0]);
+    sg(0x67,[0,0,0,0x3E,0x66,0x66,0x3E,0x06,0x3C,0,0,0,0,0,0,0]);
+    sg(0x68,[0,0x60,0x60,0x7C,0x66,0x66,0x66,0x66,0x66,0,0,0,0,0,0,0]);
+    sg(0x69,[0,0x18,0x00,0x38,0x18,0x18,0x18,0x18,0x3C,0,0,0,0,0,0,0]);
+    sg(0x6A,[0,0x06,0x00,0x06,0x06,0x06,0x06,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x6B,[0,0x60,0x60,0x66,0x6C,0x78,0x6C,0x66,0x63,0,0,0,0,0,0,0]);
+    sg(0x6C,[0,0x38,0x18,0x18,0x18,0x18,0x18,0x18,0x3C,0,0,0,0,0,0,0]);
+    sg(0x6D,[0,0,0,0x66,0x7F,0x7F,0x6B,0x63,0x63,0,0,0,0,0,0,0]);
+    sg(0x6E,[0,0,0,0x7C,0x66,0x66,0x66,0x66,0x66,0,0,0,0,0,0,0]);
+    sg(0x6F,[0,0,0,0x3C,0x66,0x66,0x66,0x66,0x3C,0,0,0,0,0,0,0]);
+    sg(0x70,[0,0,0,0x7C,0x66,0x66,0x7C,0x60,0x60,0,0,0,0,0,0,0]);
+    sg(0x71,[0,0,0,0x3E,0x66,0x66,0x3E,0x06,0x06,0,0,0,0,0,0,0]);
+    sg(0x72,[0,0,0,0x6C,0x76,0x60,0x60,0x60,0x60,0,0,0,0,0,0,0]);
+    sg(0x73,[0,0,0,0x3C,0x60,0x3C,0x06,0x06,0x7C,0,0,0,0,0,0,0]);
+    sg(0x74,[0,0x30,0x30,0x7C,0x30,0x30,0x30,0x30,0x1C,0,0,0,0,0,0,0]);
+    sg(0x75,[0,0,0,0x66,0x66,0x66,0x66,0x66,0x3E,0,0,0,0,0,0,0]);
+    sg(0x76,[0,0,0,0x66,0x66,0x66,0x3C,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x77,[0,0,0,0x63,0x63,0x6B,0x7F,0x77,0x63,0,0,0,0,0,0,0]);
+    sg(0x78,[0,0,0,0x66,0x3C,0x18,0x18,0x3C,0x66,0,0,0,0,0,0,0]);
+    sg(0x79,[0,0,0,0x66,0x66,0x3E,0x06,0x0C,0x78,0,0,0,0,0,0,0]);
+    sg(0x7A,[0,0,0,0x7E,0x0C,0x18,0x30,0x60,0x7E,0,0,0,0,0,0,0]);
+    // Space and specials
+    sg(0x20,[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
+    sg(0x2E,[0,0,0,0,0,0,0,0x18,0x18,0,0,0,0,0,0,0]);
+    sg(0x2C,[0,0,0,0,0,0,0,0x18,0x18,0x30,0,0,0,0,0,0]);
+    sg(0x3A,[0,0,0x18,0x18,0,0,0x18,0x18,0,0,0,0,0,0,0,0]);
+    sg(0x3E,[0,0,0x40,0x60,0x70,0x78,0x70,0x60,0x40,0,0,0,0,0,0,0]);
+    sg(0x3C,[0,0,0x02,0x06,0x0E,0x1E,0x0E,0x06,0x02,0,0,0,0,0,0,0]);
+    sg(0x3D,[0,0,0,0x7E,0,0,0x7E,0,0,0,0,0,0,0,0,0]);
+    sg(0x5F,[0,0,0,0,0,0,0,0,0,0xFF,0,0,0,0,0,0]);
+    sg(0x2D,[0,0,0,0,0,0x7E,0,0,0,0,0,0,0,0,0,0]);
+    sg(0x21,[0,0x18,0x18,0x18,0x18,0x18,0x18,0,0x18,0,0,0,0,0,0,0]);
+    sg(0x22,[0,0x66,0x66,0x44,0,0,0,0,0,0,0,0,0,0,0,0]);
+    sg(0x27,[0,0x30,0x30,0x10,0,0,0,0,0,0,0,0,0,0,0,0]);
+    sg(0x28,[0,0x0C,0x18,0x30,0x30,0x30,0x30,0x18,0x0C,0,0,0,0,0,0,0]);
+    sg(0x29,[0,0x30,0x18,0x0C,0x0C,0x0C,0x0C,0x18,0x30,0,0,0,0,0,0,0]);
+    sg(0x2F,[0,0x06,0x0C,0x18,0x18,0x30,0x60,0x60,0,0,0,0,0,0,0,0]);
+    sg(0x5C,[0,0x60,0x30,0x18,0x18,0x0C,0x06,0x06,0,0,0,0,0,0,0,0]);
+  }
+
+  _setupVRAMHooks() {
+    // GVRAM writes at A8000-BFFFF go to our plane arrays
+    // We intercept via mem write overrides in pc98.js
+  }
+
+  // Write to GVRAM (called from PC98 memory write handler)
+  // Plane windows: A8000=blue(0), B0000=red(1), B8000=green(2), E0000=intensity(3)
+  writeGVRAM(addr, val) {
+    const bank = this._accPage << 15;
+    if (this._grcgMode & 0x80) {
+      // GRCG enabled: write affects all unprotected planes at the same offset
+      const off = bank | (addr & 0x7FFF);
+      const tdw = !!(this._grcgMode & 0x40);
+      for (let p = 0; p < 4; p++) {
+        if (this._grcgMode & (1 << p)) continue; // protected
+        if (tdw) {
+          // TDW: tile data written directly, CPU data ignored
+          this.plane[p][off] = this._grcgTile[p];
+        } else {
+          // RMW: CPU data = bit mask; set bits take tile data
+          this.plane[p][off] = (this.plane[p][off] & ~val) | (this._grcgTile[p] & val);
+        }
+      }
+    } else {
+      const p = this._planeFor(addr);
+      if (p >= 0) this.plane[p][bank | (addr & 0x7FFF)] = val;
+    }
+    this._dirty = true;
+  }
+
+  readGVRAM(addr) {
+    const bank = this._accPage << 15;
+    if ((this._grcgMode & 0xC0) === 0xC0) {
+      // GRCG TCR read: compare unprotected planes against tiles
+      const off = bank | (addr & 0x7FFF);
+      let diff = 0;
+      for (let p = 0; p < 4; p++) {
+        if (this._grcgMode & (1 << p)) continue;
+        diff |= this.plane[p][off] ^ this._grcgTile[p];
+      }
+      return (~diff) & 0xFF;
+    }
+    const p = this._planeFor(addr);
+    return p >= 0 ? this.plane[p][bank | (addr & 0x7FFF)] : 0;
+  }
+
+  _planeFor(addr) {
+    if (addr >= 0xA8000 && addr < 0xB0000) return 0;
+    if (addr >= 0xB0000 && addr < 0xB8000) return 1;
+    if (addr >= 0xB8000 && addr < 0xC0000) return 2;
+    if (addr >= 0xE0000 && addr < 0xE8000) return 3;
+    return -1;
+  }
+
+  // Render frame to canvas
+  render() {
+    const pixels = new Uint32Array(this.imgData.data.buffer);
+    const data   = this.imgData.data;
+
+    // Graphics layer (640×400, 4 planes, displayed page only)
+    const dispBase = this._dispPage << 15;
+    if (this._showGraph || true) {
+      for (let y = 0; y < 400; y++) {
+        for (let x = 0; x < 640; x += 8) {
+          const byteOff = dispBase + (y * 80) + (x >> 3);
+          const b0 = this.plane[0][byteOff]; // Blue
+          const b1 = this.plane[1][byteOff]; // Red
+          const b2 = this.plane[2][byteOff]; // Green
+          const b3 = this.plane[3][byteOff]; // Intensity
+          for (let bit = 0; bit < 8; bit++) {
+            const mask = 0x80 >> bit;
+            const colorIdx =
+              (b0 & mask ? 1 : 0) |
+              (b1 & mask ? 2 : 0) |
+              (b2 & mask ? 4 : 0) |
+              (b3 & mask ? 8 : 0);
+            const px = y * 640 + x + bit;
+            pixels[px] = this._palette[colorIdx];
+          }
+        }
+      }
+    }
+
+    // Text layer
+    if (this._showText || true) {
+      this._renderText(pixels);
+    }
+
+    this.ctx.putImageData(this.imgData, 0, 0);
+    this._dirty = false;
+  }
+
+  _renderText(pixels) {
+    // PC-98 text: 80 cols × 25 rows
+    // Character codes at 0xA0000, attributes at 0xA2000
+    for (let row = 0; row < 25; row++) {
+      for (let col = 0; col < 80; col++) {
+        const cellOff = row * 80 + col;
+        const code    = this.mem.read8(0xA0000 + cellOff * 2);
+        const attr    = this.mem.read8(0xA2000 + cellOff * 2);
+
+        if (!code) continue;
+
+        // Attribute bits: bit0=under, bit1=?, bit2=reverse, bit3=blink, bit4=?, bit7=secret
+        const fg = (attr >> 5) & 7;  // simplified: bits 5-7 = color
+        const bg = 0;
+
+        const fgColor = this._textColor(fg, attr);
+        const bgColor = this._textColor(bg, attr);
+
+        const cx = col * 8;
+        const cy = row * 16;
+
+        const fontBase = code * 16;
+        for (let fy = 0; fy < 16; fy++) {
+          const frow = this._font[fontBase + fy] || 0;
+          for (let fx = 0; fx < 8; fx++) {
+            const isSet = !!(frow & (0x80 >> fx));
+            const px = (cy + fy) * 640 + (cx + fx);
+            if (cy + fy < 400) {
+              pixels[px] = isSet ? fgColor : 0; // transparent bg
+            }
+          }
+        }
+      }
+    }
+  }
+
+  _textColor(colorIdx, attr) {
+    // PC-98 text colors: 0=black 1=blue 2=red 3=magenta 4=green 5=cyan 6=yellow 7=white
+    const cols = [
+      0x00000000, 0xFF0000AA, 0xFFAA0000, 0xFFAA00AA,
+      0xFF00AA00, 0xFF00AAAA, 0xFFAAAA00, 0xFFAAAAAA,
+    ];
+    return cols[colorIdx & 7];
+  }
+
+  reset() {
+    for (const p of this.plane) p.fill(0);
+    this.mem.data.fill(0, 0xA0000, 0xA4000); // Text VRAM
+    this._dispPage = 0;
+    this._accPage  = 0;
+    this._grcgMode = 0;
+    this._grcgTileIdx = 0;
+    this._grcgTile.fill(0);
+    this._palIdx = 0;
+    this._initPalette();
+    this._dirty = true;
+  }
+}
+
+// ===== js/kbd.js =====
+// PC-98 Keyboard Controller (8251A)
+// Port 0x41: key data, Port 0x43: status/command, Port 0x43D: keyboard mode
+class Keyboard {
+  constructor(io, pic) {
+    this.pic  = pic;
+    this._buf = [];
+    this._shift = false;
+    this._ctrl  = false;
+    this._alt   = false;
+    // Pressed-key bitmap: 16 groups × 8 keys (indexed by scan code)
+    this._keyState = new Uint8Array(16);
+
+    io.register(0x41, () => this._readKey(), (p,v) => {});
+    // 8251 status: bit1 = RxRDY (data available), bit0 = TxRDY (always ready)
+    io.register(0x43, () => (this._buf.length > 0 ? 0x02 : 0x00) | 0x01, (p,v) => {});
+    io.register(0x43D, null, (p,v) => {}); // keyboard control
+
+    // BIOS keyboard buffer is at 0x0502 (PC-98)
+    this._biosHead = 0x0524; // MEMW_KB_BUF_HEAD
+    this._biosTail = 0x0526; // MEMW_KB_BUF_TAIL
+    this._biosBuf  = 0x0502; // MEMW_KB_BUF (16-word ring buffer)
+    this._mem      = null;   // set by pc98.js
+
+    // PC-98 key code table
+    this._keyMap = this._buildKeyMap();
+  }
+
+  setMem(mem) { this._mem = mem; }
+
+  _buildKeyMap() {
+    // Browser keyCode → PC-98 scan code mapping
+    return {
+      'Escape': 0x01, 'F1': 0x62, 'F2': 0x63, 'F3': 0x64, 'F4': 0x65,
+      'F5': 0x66, 'F6': 0x67, 'F7': 0x68, 'F8': 0x69, 'F9': 0x6A, 'F10': 0x6B,
+      'Digit1': 0x01, 'Digit2': 0x02, 'Digit3': 0x03, 'Digit4': 0x04,
+      'Digit5': 0x05, 'Digit6': 0x06, 'Digit7': 0x07, 'Digit8': 0x08,
+      'Digit9': 0x09, 'Digit0': 0x0A,
+      'KeyQ': 0x10, 'KeyW': 0x11, 'KeyE': 0x12, 'KeyR': 0x13, 'KeyT': 0x14,
+      'KeyY': 0x15, 'KeyU': 0x16, 'KeyI': 0x17, 'KeyO': 0x18, 'KeyP': 0x19,
+      'KeyA': 0x1D, 'KeyS': 0x1E, 'KeyD': 0x1F, 'KeyF': 0x20, 'KeyG': 0x21,
+      'KeyH': 0x22, 'KeyJ': 0x23, 'KeyK': 0x24, 'KeyL': 0x25,
+      'KeyZ': 0x29, 'KeyX': 0x2A, 'KeyC': 0x2B, 'KeyV': 0x2C,
+      'KeyB': 0x2D, 'KeyN': 0x2E, 'KeyM': 0x2F,
+      'Space': 0x34, 'Enter': 0x1C, 'Backspace': 0x0E,
+      'Tab': 0x0F, 'Delete': 0x39, 'Insert': 0x38,
+      'Home': 0x3E, 'End': 0x3F, 'PageUp': 0x37, 'PageDown': 0x36,
+      'ArrowUp': 0x3A, 'ArrowDown': 0x3D, 'ArrowLeft': 0x3B, 'ArrowRight': 0x3C,
+      'Minus': 0x0B, 'Equal': 0x0C, 'BracketLeft': 0x1A, 'BracketRight': 0x1B,
+      'Semicolon': 0x26, 'Quote': 0x27, 'Backslash': 0x28,
+      'Comma': 0x30, 'Period': 0x31, 'Slash': 0x32,
+    };
+  }
+
+  onKeyDown(e) {
+    if (e.key === 'Shift')   { this._shift = true; return; }
+    if (e.key === 'Control') { this._ctrl  = true; return; }
+    if (e.key === 'Alt')     { this._alt   = true; return; }
+
+    const code = this._keyMap[e.code];
+    if (code === undefined) return;
+
+    this._keyState[(code >> 3) & 0x0F] |= 1 << (code & 7);
+
+    // ASCII for buffer-based reads (INT 18h AH=0 etc.)
+    const ascii = (e.key && e.key.length === 1) ? (e.key.charCodeAt(0) & 0xFF)
+      : e.key === 'Enter' ? 0x0D : e.key === 'Escape' ? 0x1B
+      : e.key === 'Backspace' ? 0x08 : e.key === 'Tab' ? 0x09 : 0;
+
+    this._buf.push({ scan: code & 0xFF, ascii });
+    if (this._buf.length > 16) this._buf.shift();
+    this.pic.raise(1); // IRQ1 → keyboard
+  }
+
+  onKeyUp(e) {
+    if (e.key === 'Shift')   { this._shift = false; }
+    if (e.key === 'Control') { this._ctrl  = false; }
+    if (e.key === 'Alt')     { this._alt   = false; }
+    const code = this._keyMap[e.code];
+    if (code !== undefined) this._keyState[(code >> 3) & 0x0F] &= ~(1 << (code & 7));
+  }
+
+  // INT 18h AH=04: bitmap of pressed keys in group g
+  senseGroup(g) {
+    return this._keyState[g & 0x0F];
+  }
+
+  _readKey() {
+    if (this._buf.length > 0) return this._buf.shift().scan & 0xFF;
+    return 0;
+  }
+
+  reset() {
+    this._buf   = [];
+    this._shift = this._ctrl = this._alt = false;
+    this._keyState.fill(0);
+  }
+}
+
+// ===== js/mouse.js =====
+// PC-98 bus mouse (8255A at 0x7FD9-0x7FDF)
+// Port A (0x7FD9) read: bit7=left btn, bit6=middle, bit5=right (all active low),
+//                       bits0-3 = selected displacement counter nibble
+// Port C (0x7FDD): bit7=HC (latch+clear counters on rising edge),
+//                  bit6=SXY (0=X counter, 1=Y), bit5=SHL (0=low nibble, 1=high)
+// Control (0x7FDF): BSR mode (bit7=0): set/reset single port C bit
+class Mouse {
+  constructor(io) {
+    this._dx = 0; this._dy = 0;   // accumulating deltas
+    this._lx = 0; this._ly = 0;   // latched counter values
+    this._btnL = false; this._btnR = false;
+    this._portC = 0;
+
+    io.register(0x7FD9, () => this._readA(), (p,v) => {});
+    io.register(0x7FDB, () => 0xFF, (p,v) => {});
+    io.register(0x7FDD, () => this._portC, (p,v) => this._writeC(v));
+    io.register(0x7FDF, null, (p,v) => {
+      if (!(v & 0x80)) {
+        // BSR mode: bit0 = value, bits1-3 = port C bit number
+        const bit = (v >> 1) & 7;
+        const old = this._portC;
+        if (v & 1) this._portC |= (1 << bit);
+        else       this._portC &= ~(1 << bit);
+        this._hcEdge(old);
+      }
+    });
+  }
+
+  _writeC(v) {
+    const old = this._portC;
+    this._portC = v;
+    this._hcEdge(old);
+  }
+
+  _hcEdge(old) {
+    // Rising edge of HC: latch counters and clear accumulators
+    if ((this._portC & 0x80) && !(old & 0x80)) {
+      this._lx = this._dx & 0xFF;
+      this._ly = this._dy & 0xFF;
+      this._dx = 0;
+      this._dy = 0;
+    }
+  }
+
+  _readA() {
+    const v   = (this._portC & 0x40) ? this._ly : this._lx;
+    const nib = (this._portC & 0x20) ? (v >> 4) & 0x0F : v & 0x0F;
+    let r = nib | 0x40; // middle button released
+    if (!this._btnL) r |= 0x80;
+    if (!this._btnR) r |= 0x20;
+    return r;
+  }
+
+  // Browser event feeds
+  move(dx, dy) {
+    this._dx = Math.max(-127, Math.min(127, this._dx + dx));
+    this._dy = Math.max(-127, Math.min(127, this._dy + dy));
+  }
+  button(which, pressed) {
+    if (which === 0) this._btnL = pressed;
+    else             this._btnR = pressed;
+  }
+
+  reset() {
+    this._dx = this._dy = this._lx = this._ly = 0;
+    this._btnL = this._btnR = false;
+    this._portC = 0;
+  }
+}
+
+// ===== js/bios.js =====
+// PC-98 BIOS simulation
+// Installs INT vectors and handles INT calls via trap mechanism
+class BIOS {
+  constructor(mem, io, cpu, fdc, kbd, video) {
+    this.mem   = mem;
+    this.io    = io;
+    this.cpu   = cpu;
+    this.fdc   = fdc;
+    this.kbd   = kbd;
+    this.video = video;
+
+    this._diskBuf = 0; // DMA buffer address
+
+    // Magic address for BIOS hook: 0xF0000 onwards
+    this.HOOK_BASE = 0xF0000;
+    // Timer counter at BIOS data area
+    this.MEM_TIMER  = 0x05C4;
+    this.MEM_KBHEAD = 0x0524;
+    this.MEM_KBTAIL = 0x0526;
+    this.MEM_KBBUF  = 0x0502;
+  }
+
+  install() {
+    // Set up interrupt vectors (4 bytes each: IP, CS)
+    const setVec = (n, cs, ip) => {
+      this.mem.write16(n * 4,     ip);
+      this.mem.write16(n * 4 + 2, cs);
+    };
+
+    // BIOS segment = 0xF000
+    const BS = 0xF000;
+
+    // Default stubs: 0x0100 + i (1 byte IRET each)
+    for (let i = 0; i < 256; i++) {
+      const off = 0x0100 + i;
+      this.mem.write8(this.HOOK_BASE + off, 0xCF); // IRET
+      setVec(i, BS, off);
+    }
+
+    // INT 08h: Timer IRQ
+    this._installHook(0x08, BS, () => {
+      const cnt = this.mem.read16(this.MEM_TIMER);
+      this.mem.write16(this.MEM_TIMER, (cnt + 1) & 0xFFFF);
+      // EOI
+      this.io.write8(0x20, 0x20);
+    });
+
+    // INT 1Ch: Timer user hook (default: IRET)
+    setVec(0x1C, BS, 0x0100 + 0x1C * 2);
+
+    // INT 1Bh: Disk BIOS
+    this._installHook(0x1B, BS, () => this._int1b());
+
+    // INT 18h: Keyboard BIOS
+    this._installHook(0x18, BS, () => this._int18());
+
+    // INT 19h: Keyboard (wait)
+    this._installHook(0x19, BS, () => this._int18());
+
+    // INT 10h: (not used on PC-98 normally, but some programs use it)
+    this._installHook(0x10, BS, () => {}); // ignore
+
+    // INT 21h: DOS interrupt (we simulate basic DOS services)
+    this._installHook(0x21, BS, () => this._int21());
+
+    // INT 20h: DOS terminate
+    this._installHook(0x20, BS, () => {
+      this.cpu.halted = true;
+    });
+
+    // INT 27h: TSR terminate (treat as halt)
+    this._installHook(0x27, BS, () => {
+      this.cpu.halted = true;
+    });
+
+    // Initialize BIOS data area
+    this._initBDA();
+  }
+
+  _installHook(intNum, cs, fn) {
+    // Hook stubs at 0x0300 + intNum*2 (no overlap with default stubs at 0x100-0x1FF)
+    const off = 0x0300 + intNum * 2;
+    this.mem.write16(intNum * 4,     off);
+    this.mem.write16(intNum * 4 + 2, cs);
+    this.mem.write8(this.HOOK_BASE + off,     0xF4); // HLT
+    this.mem.write8(this.HOOK_BASE + off + 1, intNum & 0xFF);
+    this._hooks = this._hooks || {};
+    this._hooks[intNum] = fn;
+  }
+
+  _initBDA() {
+    const m = this.mem;
+    // Equipment flags
+    m.write8(0x480, 0x11); // SYS_TYPE: 2HD drive equipped
+    m.write8(0x482, 0x03); // 2 FDD
+    // Keyboard buffer pointers
+    m.write16(this.MEM_KBHEAD, this.MEM_KBBUF);
+    m.write16(this.MEM_KBTAIL, this.MEM_KBBUF);
+    // Timer counter
+    m.write16(this.MEM_TIMER, 0);
+    // Disk result area
+    m.write8(0x584, 0x00); // MEMB_DISK_BOOT
+
+    // Conventional memory size: 640KB
+    m.write16(0x0413, 640); // standard BIOS memory size word
+
+    // NEC copyright string (some games check this)
+    const necStr = "Copyright (C) 1983 by NEC Corporation";
+    for (let i = 0; i < necStr.length; i++) {
+      m.write8(0xFE800 + i, necStr.charCodeAt(i));
+    }
+    m.write8(0xFE800 + necStr.length, 0);
+  }
+
+  // Called when CPU executes HLT at a BIOS hook address
+  handleHLT() {
+    const pc = this.cpu.seg2phys(this.cpu.cs, this.cpu.ip);
+    const intNum = this.mem.read8(pc);
+    if (this._hooks && this._hooks[intNum]) {
+      this._hooks[intNum]();
+      this.cpu.ip++; // skip the intNum byte
+      // IRET
+      this.cpu.ip    = this.cpu.pop();
+      this.cpu.cs    = this.cpu.pop();
+      this.cpu.flags = this.cpu.pop() | 0x0002;
+      this.cpu.halted= false;
+      return true;
+    }
+    return false;
+  }
+
+  // ── INT 1Bh: Disk BIOS ────────────────────────────────────────────
+  // PC-98 calling convention:
+  //   AH = function (bits 0-3) + mode flags (bit6=MFM, bit4=MT)
+  //   AL = drive (bits 0-1) | flags (bit7=2HD, bit2=head select)
+  //   BX = byte count for read/write
+  //   CL = cylinder, CH = sector size code (N: 0=128,1=256,2=512,3=1024)
+  //   DL = sector (R), DH = head
+  //   ES:BP = buffer address
+  _int1b() {
+    const ah    = this.cpu.ah;
+    const al    = this.cpu.al;
+    const func  = ah & 0x0F;
+    const drive = al & 0x03;
+    const C     = this.cpu.cl;
+    const H     = this.cpu.dh;
+    const R     = this.cpu.dl;
+    const N     = this.cpu.ch;
+    const secSize  = 128 << Math.min(N, 3);
+    const bufSize  = this.cpu.bx;
+    const bufAddr  = this.cpu.seg2phys(this.cpu.es, this.cpu.bp);
+    const fdi      = this.fdc.disk[drive];
+
+    switch (func) {
+      case 0x00: // Seek / Reset
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+
+      case 0x01: // Verify
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+
+      case 0x06: // Read data (normal)
+      case 0x02: // Read deleted data
+      {
+        if (!fdi) { this.cpu.ah = 0x10; this.cpu.CF = 1; break; }
+        let bytesLeft = bufSize;
+        let curR  = R;
+        let curC  = C;
+        let curH  = H;
+        let addr  = bufAddr;
+
+        while (bytesLeft > 0) {
+          const buf = new Uint8Array(secSize);
+          if (!fdi.readSector(curC, curH, curR, buf)) {
+            this.cpu.ah = 0x04; this.cpu.CF = 1; return;
+          }
+          const n = Math.min(secSize, bytesLeft);
+          for (let i = 0; i < n; i++) this.mem.write8(addr + i, buf[i]);
+          addr += n;
+          bytesLeft -= n;
+          curR++;
+          if (curR > fdi.sectorsPerTrk) {
+            curR = 1;
+            curH ^= 1;
+            if (curH === 0) curC++;
+          }
+        }
+        if (this.video) this.video._fddActivity = Date.now();
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x05: // Write data
+      {
+        if (!fdi || fdi.writeProtect) { this.cpu.ah = 0x03; this.cpu.CF = 1; break; }
+        let bytesLeft = bufSize;
+        let curR = R;
+        let curC = C;
+        let curH = H;
+        let addr = bufAddr;
+        while (bytesLeft > 0) {
+          const buf = new Uint8Array(secSize);
+          const n = Math.min(secSize, bytesLeft);
+          for (let i = 0; i < n; i++) buf[i] = this.mem.read8(addr + i);
+          fdi.writeSector(curC, curH, curR, buf);
+          addr += n; bytesLeft -= n; curR++;
+          if (curR > fdi.sectorsPerTrk) { curR = 1; curH ^= 1; if (curH === 0) curC++; }
+        }
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x03: // Motor on/off
+      case 0x04: // Sense drive status
+        this.cpu.ah = fdi ? 0x00 : 0x10;
+        this.cpu.CF = fdi ? 0 : 1;
+        break;
+
+      case 0x0A: // Read ID
+        if (!fdi) { this.cpu.ah = 0x10; this.cpu.CF = 1; break; }
+        this.cpu.cl = C; this.cpu.dh = H; this.cpu.dl = 1; this.cpu.ch = N;
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+
+      case 0x0D: // Format track
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+
+      default:
+        this.cpu.ah = 0; this.cpu.CF = 0;
+        break;
+    }
+  }
+
+  // ── INT 18h/19h: Keyboard BIOS ────────────────────────────────────
+  _int18() {
+    const ah = this.cpu.ah;
+    switch (ah) {
+      case 0x00: { // Read key (blocking)
+        const k = (this.kbd && this.kbd._buf.length > 0) ? this.kbd._buf.shift() : null;
+        if (k) {
+          this.cpu.ah = k.scan;
+          this.cpu.al = k.ascii;
+        } else {
+          this.cpu.ax = 0;
+        }
+        break;
+      }
+      case 0x01: { // Check key buffer (peek, non-destructive)
+        const k = (this.kbd && this.kbd._buf.length > 0) ? this.kbd._buf[0] : null;
+        if (k) {
+          this.cpu.ZF = 0; // key available
+          this.cpu.ah = k.scan;
+          this.cpu.al = k.ascii;
+        } else {
+          this.cpu.ZF = 1; // no key
+        }
+        break;
+      }
+      case 0x02: // Shift state
+        this.cpu.al = 0;
+        break;
+      case 0x04: // Sense key group: AL = group (0-15), returns AH = pressed-key bitmap
+        this.cpu.ah = this.kbd ? this.kbd.senseGroup(this.cpu.al) : 0;
+        break;
+      case 0x03: case 0x05: case 0x06: case 0x07:
+      case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C:
+      case 0x0D: case 0x0E: case 0x0F: case 0x10: case 0x11:
+      case 0x12: case 0x13: // CRT/keyboard setup - return clean state
+        this.cpu.bh = 0; // indicate buffer empty / done
+        this.cpu.CF = 0;
+        break;
+    }
+  }
+
+  // ── INT 21h: DOS services ─────────────────────────────────────────
+  _int21() {
+    const ah = this.cpu.ah;
+    switch (ah) {
+      case 0x00: // Terminate program
+        this.cpu.halted = true;
+        break;
+
+      case 0x01: { // Read character from stdin
+        const k = (this.kbd && this.kbd._buf.length > 0) ? this.kbd._buf.shift() : null;
+        this.cpu.al = k ? (k.ascii & 0x7F) : 0;
+        break;
+      }
+
+      case 0x02: // Write character to stdout (DL)
+        break; // ignore
+
+      case 0x06: // Direct console I/O
+        if (this.cpu.dl === 0xFF) {
+          // input request
+          this.cpu.al = 0;
+          this.cpu.ZF = 1;
+        }
+        break;
+
+      case 0x07: case 0x08: // Read key without echo
+        this.cpu.al = 0;
+        break;
+
+      case 0x09: { // Print string (DS:DX, $-terminated)
+        let addr = this.cpu.seg2phys(this.cpu.ds, this.cpu.dx);
+        while (true) {
+          const c = this.mem.read8(addr++);
+          if (c === 0x24 || !c) break;
+        }
+        break;
+      }
+
+      case 0x0A: // Buffered input
+        break;
+
+      case 0x0B: // Check stdin status
+        this.cpu.al = 0;
+        break;
+
+      case 0x0C: // Flush + read
+        this.cpu.al = 0;
+        break;
+
+      case 0x19: // Get current drive
+        this.cpu.al = 0; // A:
+        break;
+
+      case 0x1A: { // Set DTA (DS:DX)
+        this._dta = this.cpu.seg2phys(this.cpu.ds, this.cpu.dx);
+        break;
+      }
+
+      case 0x25: { // Set interrupt vector (AL=int, DS:DX=handler)
+        this.mem.write16(this.cpu.al * 4,     this.cpu.dx);
+        this.mem.write16(this.cpu.al * 4 + 2, this.cpu.ds);
+        break;
+      }
+
+      case 0x2A: // Get date
+        this.cpu.cx = 1992; this.cpu.dh = 1; this.cpu.dl = 1;
+        this.cpu.al = 3; // Wednesday
+        break;
+
+      case 0x2C: // Get time
+        this.cpu.ch = 12; this.cpu.cl = 0;
+        this.cpu.dh = 0;  this.cpu.dl = 0;
+        break;
+
+      case 0x2F: { // Get DTA
+        const dta = this._dta || 0x80;
+        this.cpu.es = (dta >> 4) & 0xF000;
+        this.cpu.bx = dta & 0xFFFF;
+        break;
+      }
+
+      case 0x30: // Get DOS version
+        this.cpu.al = 3; this.cpu.ah = 30; // 3.30
+        this.cpu.bh = 0xFF; // PC-98 DOS
+        break;
+
+      case 0x35: { // Get interrupt vector
+        this.cpu.es = this.mem.read16(this.cpu.al * 4 + 2);
+        this.cpu.bx = this.mem.read16(this.cpu.al * 4);
+        break;
+      }
+
+      case 0x3C: case 0x3D: case 0x3E: // File operations - stub
+        this.cpu.ax = 0;
+        this.cpu.CF = 0;
+        break;
+
+      case 0x3F: { // Read file
+        this.cpu.ax = 0;
+        this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x40: { // Write file
+        this.cpu.ax = this.cpu.cx;
+        this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x41: case 0x43: case 0x45: case 0x46: // File misc
+        this.cpu.ax = 0;
+        this.cpu.CF = 0;
+        break;
+
+      case 0x47: { // Get current directory
+        this.mem.write8(this.cpu.seg2phys(this.cpu.ds, this.cpu.si), 0);
+        this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x48: { // Allocate memory (BX = paragraphs)
+        // Simple bump allocator starting at 0x2000
+        if (!this._heapTop) this._heapTop = 0x2000;
+        this.cpu.ax = this._heapTop;
+        this._heapTop = (this._heapTop + this.cpu.bx) & 0xFFFF;
+        this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x49: // Free memory
+        this.cpu.CF = 0;
+        break;
+
+      case 0x4A: { // Modify memory block (SETBLOCK)
+        this.cpu.CF = 0;
+        break;
+      }
+
+      case 0x4B: { // Load and execute program (EXEC) - stub
+        this.cpu.ax = 0x08; // not found
+        this.cpu.CF = 1;
+        break;
+      }
+
+      case 0x4C: // Terminate with return code
+        this.cpu.halted = true;
+        break;
+
+      case 0x4D: // Get return code
+        this.cpu.ax = 0;
+        break;
+
+      case 0x54: // Get verify flag
+        this.cpu.al = 0;
+        break;
+
+      default:
+        this.cpu.ax = 0x01; // function not implemented
+        this.cpu.CF = 1;
+        break;
+    }
+  }
+
+  reset() {
+    this._hooks = {};
+    this._dta   = 0;
+    this._heapTop= 0x2000;
+    this.install();
+  }
+}
+
+// ===== js/pc98.js =====
+// PC-98 System Integration
+class PC98 {
+  constructor(canvas) {
+    this.mem   = new Memory();
+    this.io    = new IO();
+    this.cpu   = new CPU(this.mem, this.io);
+    this.pic   = new PIC(this.io, this.cpu);
+    this.pit   = new PIT(this.io, this.pic);
+    this.fdc   = new FDC(this.io, this.pic, this.mem);
+    this.video = new Video(canvas, this.mem, this.io);
+    this.kbd   = new Keyboard(this.io, this.pic);
+    this.mouse = new Mouse(this.io);
+    this.bios  = new BIOS(this.mem, this.io, this.cpu, this.fdc, this.kbd, this.video);
+
+    this.kbd.setMem(this.mem);
+    this.video.getCycles = () => this.cpu.totalCycles;
+    this._mouseCycles = 0;
+    this._vsyncCycles = 0;
+    this._running  = false;
+    this._rafId    = null;
+    this._frameCount = 0;
+    this._lastFPS  = 0;
+    this._lastTime = 0;
+    this._speedMultiplier = 1.0;
+
+    this._setupMemoryMap();
+    this._setupDMA();
+    this.reset();
+  }
+
+  _setupMemoryMap() {
+    const mem = this.mem;
+    const video = this.video;
+
+    // Intercept GVRAM reads/writes (A8000-BFFFF)
+    const origRead8  = mem.read8.bind(mem);
+    const origWrite8 = mem.write8.bind(mem);
+
+    mem.read8 = (addr) => {
+      addr &= 0xFFFFF;
+      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
+        return video.readGVRAM(addr);
+      }
+      return origRead8(addr);
+    };
+
+    mem.write8 = (addr, val) => {
+      addr &= 0xFFFFF;
+      val &= 0xFF;
+      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
+        origWrite8(addr, val);
+        video.writeGVRAM(addr, val);
+        return;
+      }
+      origWrite8(addr, val);
+    };
+
+    mem.read16 = (addr) => {
+      return mem.read8(addr) | (mem.read8(addr + 1) << 8);
+    };
+    mem.write16 = (addr, val) => {
+      mem.write8(addr, val & 0xFF);
+      mem.write8(addr + 1, (val >> 8) & 0xFF);
+    };
+  }
+
+  _setupDMA() {
+    const io = this.io;
+    const fdc = this.fdc;
+
+    // DMA registers (simplified)
+    // PC-98 DMA for FDD: channel 2
+    // PC-98 8237A sits on ODD ports 0x01-0x1F (even ports belong to the PICs)
+    const dmaState = {
+      addr: [0, 0, 0, 0],
+      count: [0, 0, 0, 0],
+      page: [0, 0, 0, 0],
+      lowByte: [true, true, true, true],
+    };
+
+    // DMA address/count ports: ch addr = 0x01+ch*4, ch count = 0x03+ch*4
+    for (let ch = 0; ch < 4; ch++) {
+      const c = ch;
+      io.register(0x01 + c * 4, () => dmaState.addr[c] & 0xFF, (p, v) => {
+        if (dmaState.lowByte[c]) { dmaState.addr[c] = (dmaState.addr[c] & 0xFF00) | v; dmaState.lowByte[c] = false; }
+        else {
+          dmaState.addr[c] = (dmaState.addr[c] & 0x00FF) | (v << 8); dmaState.lowByte[c] = true;
+          fdc.setDMA((dmaState.page[c] << 16) | dmaState.addr[c], dmaState.count[c]);
+        }
+      });
+      io.register(0x03 + c * 4, () => dmaState.count[c] & 0xFF, (p, v) => {
+        if (dmaState.lowByte[c]) { dmaState.count[c] = (dmaState.count[c] & 0xFF00) | v; dmaState.lowByte[c] = false; }
+        else {
+          dmaState.count[c] = (dmaState.count[c] & 0x00FF) | (v << 8); dmaState.lowByte[c] = true;
+          if (c === 2) fdc.setDMA((dmaState.page[c] << 16) | dmaState.addr[c], dmaState.count[c]);
+        }
+      });
+    }
+
+    // DMA control ports: 0x19 = flip-flop reset (resets low/high byte toggle)
+    io.register(0x11, null, (p,v) => {});
+    io.register(0x13, null, (p,v) => {});
+    io.register(0x15, null, (p,v) => {});
+    io.register(0x17, null, (p,v) => {}); // mask register
+    io.register(0x19, null, (p,v) => { dmaState.lowByte.fill(true); }); // flip-flop reset
+    io.register(0x1D, null, (p,v) => {});
+    io.register(0x1F, null, (p,v) => {});
+
+    // DMA page registers: page written separately, must also trigger setDMA
+    // (game may write page AFTER address hi-byte, so re-sync when page changes)
+    io.register(0x1B, null, (p,v) => {
+      dmaState.page[2] = v;
+      fdc.setDMA((dmaState.page[2] << 16) | dmaState.addr[2], dmaState.count[2]);
+    });
+    io.register(0x27, null, (p,v) => {});
+
+    // PIC ports
+    // (Already registered in PIC constructor)
+
+    // System I/O (misc)
+    io.register(0x0F0, null, (p,v) => {}); // coprocessor
+    io.register(0x0F2, null, (p,v) => {});
+    io.register(0x9C,  null, (p,v) => {}); // NMI mask
+    io.register(0x9E,  null, (p,v) => {}); // wait
+
+    // Sound (OPN: YM2608) - stub
+    io.register(0x88, () => 0, (p,v) => {}); // OPN address
+    io.register(0x8A, () => 0, (p,v) => {}); // OPN data
+    io.register(0x188, () => 0, (p,v) => {}); // OPNA (86 board) address
+    io.register(0x18A, () => 0, (p,v) => {}); // OPNA data
+    io.register(0x18C, () => 0, (p,v) => {});
+    io.register(0x18E, () => 0, (p,v) => {});
+
+    // Calendar (not critical)
+    io.register(0x20, () => 0x20, null); // already handled by PIC
+    io.register(0x70, () => 0, (p,v) => {});
+    io.register(0x71, null, null); // already handled by PIT (but may conflict)
+
+    // Mouse interrupt interval timer
+    io.register(0xBFDB, null, (p,v) => {});
+
+    // Misc system ports
+    io.register(0x30, () => 0, (p,v) => {}); // ?
+    io.register(0x32, null, (p,v) => {}); // BEEP
+    io.register(0x33, () => 0, null);
+    io.register(0x37, () => 0, null);
+    io.register(0x4A, () => 0x80, null); // EMS?
+    io.register(0x43D, null, (p,v) => {}); // kbd mode
+    io.register(0x43F, () => 0, null);
+  }
+
+  // Mount FDI image
+  mountDisk(driveNo, fdi) {
+    const hadDisk = !!this.fdc.disk[driveNo];
+    this.fdc.mount(driveNo, fdi);
+    // Disk change while running: simulate the FDC "attention" sequence.
+    // The BIOS IRQ11 handler sets bit3 of the work-area status byte
+    // (0:0x564 + drive*8); ELFDOS chains INT 13h (vector) and reads it to
+    // set its own disk-change flags.
+    if (hadDisk) {
+      const addr = 0x564 + (driveNo & 3) * 8;
+      this.mem.write8(addr, this.mem.read8(addr) | 0x08);
+      this.cpu.requestInterrupt(0x13);
+    }
+  }
+
+  reset() {
+    this.mem.reset();
+    this.cpu.reset();
+    this.pic.reset();
+    this.pit.reset();
+    this.fdc.reset();
+    this.video.reset();
+    this.kbd.reset();
+    this.mouse.reset();
+
+    // Re-install BIOS after memory reset
+    this.bios.install();
+
+    // Boot: load first track from FDD0 into memory and jump to it
+    this._bootFromFloppy();
+  }
+
+  _bootFromFloppy() {
+    const fdi = this.fdc.disk[0];
+    if (!fdi) return;
+
+    // PC-98 IPL: load only sector 1 (1024 bytes for 2HD) at physical 0x1FC00
+    // bootseg = 0x1FC00 >> 4 = 0x1FC0
+    const BOOT_PHYS = 0x1FC00;
+    const BOOT_SEG  = 0x1FC0;
+
+    const buf = new Uint8Array(fdi.sectorSize);
+    if (fdi.readSector(0, 0, 1, buf)) {
+      this.mem.load(BOOT_PHYS, buf);
+    }
+
+    // CPU starts at bootseg:0000
+    this.cpu.cs = BOOT_SEG;
+    this.cpu.ip = 0x0000;
+    this.cpu.ds = BOOT_SEG;
+    this.cpu.es = 0x0000;
+    this.cpu.ss = BOOT_SEG;
+    this.cpu.sp = 0xFFFE;
+
+    this.bios._dta = 0x80;
+    this.mem.write8(0x480, 0x11);
+    this.mem.write8(0x482, 0x03);
+  }
+
+  start() {
+    if (this._running) return;
+    this._running = true;
+    this._loop();
+  }
+
+  stop() {
+    this._running = false;
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
+  _loop() {
+    if (!this._running) return;
+
+    const now = performance.now();
+    // Target 10MHz: 10,000 cycles per ms
+    const CYCLES_PER_MS = 10000;
+    const MAX_DELTA_MS = 20; // cap to avoid spiral-of-death after tab switch
+
+    if (this._lastTime === 0) this._lastTime = now;
+    const elapsed = Math.min(now - this._lastTime, MAX_DELTA_MS);
+    this._lastTime = now;
+
+    const cyclesToRun = Math.floor(elapsed * CYCLES_PER_MS * this._speedMultiplier);
+
+    let cycles = 0;
+    while (cycles < cyclesToRun) {
+      if (this.cpu.halted) {
+        if (!this.bios.handleHLT()) break;
+      }
+      const c = this.cpu.step();
+      cycles += c;
+      this.tickDevices(c);
+    }
+
+    this.video.render();
+    this._frameCount++;
+
+    if (now - this._lastFPS >= 1000) {
+      if (this.onFPS) this.onFPS(this._frameCount);
+      this._frameCount = 0;
+      this._lastFPS = now;
+    }
+
+    this._rafId = requestAnimationFrame(() => this._loop());
+  }
+
+  // Advance time-based devices by c CPU cycles
+  tickDevices(c) {
+    this.pit.tick(c);
+    // Mouse interrupt: IRQ13 (slave IR5) at ~120Hz (10MHz / 120 ≈ 83333 cycles)
+    this._mouseCycles += c;
+    if (this._mouseCycles >= 83333) {
+      this._mouseCycles -= 83333;
+      this.pic.raise(13);
+    }
+    // CRT VSYNC interrupt: IRQ2 at ~56.4Hz (matches video frame period)
+    this._vsyncCycles += c;
+    if (this._vsyncCycles >= 177240) {
+      this._vsyncCycles -= 177240;
+      this.pic.raise(2);
+    }
+  }
+
+  onKeyDown(e) { this.kbd.onKeyDown(e); }
+  onKeyUp(e)   { this.kbd.onKeyUp(e);   }
+}
+
+// ===== app.js =====
+// PC-98 同級生 — Brewser (Nintendo Switch) front-end for pc98EmulatorWeb.
+// Disks are bundled under disks/ (renamed *.bin so the Brewser resource
+// loader serves them), the CG ROM is pre-rendered in cgrom.bin.
+
+// ---- diagnostics ----
+// On a release Brewser build `console.log` is silent and only `console.error`
+// reaches the on-device log file, so every boot step is reported with
+// console.error and mirrored to the on-screen overlay. If the app ever comes
+// up blank again, the last `[pc98]` line in the log says how far it got.
+const BOOT_LOG = [];
+function diag(msg) {
+  BOOT_LOG.push(msg);
+  try { console.error('[pc98] ' + msg); } catch (_) {}
+}
+function fatal(where, err) {
+  const detail = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err);
+  diag('FATAL ' + where + ': ' + detail);
+  try {
+    const el = document.getElementById('overlay-msg');
+    const ov = document.getElementById('overlay');
+    if (el && ov) {
+      el.className = 'overlay-msg error';
+      const NL = String.fromCharCode(10);
+      el.textContent = 'エラー (' + where + ')' + NL + detail + NL + NL
+        + '--- boot log ---' + NL + BOOT_LOG.join(NL);
+      ov.classList.remove('hidden');
+    }
+  } catch (_) {}
+}
+diag('script start');
+try {
+  window.addEventListener('error', (e) => fatal('window.error', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => fatal('unhandledrejection', e.reason));
+} catch (_) {}
+
+const DISKS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+const BOOT_FDD1 = 'a';
+const BOOT_FDD2 = 'b';
+
+const SCREEN_W = 640, SCREEN_H = 400;
+
+// ---- UI elements ----
+const canvas     = document.getElementById('screen');
+const overlay    = document.getElementById('overlay');
+const overlayMsg = document.getElementById('overlay-msg');
+const toastEl    = document.getElementById('toast');
+const vkbdEl     = document.getElementById('vkbd');
+const btnKbd     = document.getElementById('btn-kbd');
+const btnPause   = document.getElementById('btn-pause');
+const btnReset   = document.getElementById('btn-reset');
+const statusText = document.getElementById('status-text');
+const cpuSpeed   = document.getElementById('cpu-speed');
+const fddAct     = document.getElementById('fdd-activity');
+const driveLabel = [document.getElementById('fdd1-label'), document.getElementById('fdd2-label')];
+const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementById('fdd2-grid')];
+
+let pc98 = null;
+let paused = false;
+const diskCache = {};          // letter -> FDI
+const mounted = [null, null];  // letter per drive
+let toastTimer = null;
+
+// ---- canvas layout ----
+// The runtime viewport is 1280x720 on Switch but the page must not assume it:
+// scale the 640x400 framebuffer to whatever the screen area actually is,
+// keeping integer-friendly proportions and the 8:5 aspect.
+function layout() {
+  const box = canvas.parentNode;
+  const w = box.clientWidth || (window.innerWidth - 160) || 1120;
+  const h = box.clientHeight || window.innerHeight || 720;
+  const scale = Math.min(w / SCREEN_W, h / SCREEN_H);
+  canvas.style.width  = Math.max(1, Math.floor(SCREEN_W * scale)) + 'px';
+  canvas.style.height = Math.max(1, Math.floor(SCREEN_H * scale)) + 'px';
+}
+try { window.addEventListener('resize', layout); } catch (_) {}
+
+function setStatus(msg) { statusText.textContent = msg; }
+
+function toast(msg, ms = 1800) {
+  toastEl.textContent = msg;
+  toastEl.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.add('hidden'), ms);
+}
+
+// ---- resource loading ----
+function xhrBytes(path) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', path, true);
+    xhr.responseType = 'arraybuffer';
+    xhr.onload = () => {
+      // A local (non-HTTP) load reports status 0 on success.
+      if (xhr.status === 0 || (xhr.status >= 200 && xhr.status < 300)) resolve(xhr.response);
+      else reject(new Error(`${path}: HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error(`${path}: XHR error`));
+    xhr.send();
+  });
+}
+
+async function fetchBytes(path) {
+  let buf;
+  if (typeof fetch === 'function') {
+    let res;
+    try {
+      res = await fetch(path);
+    } catch (err) {
+      throw new Error(`${path}: fetch failed (${err && err.message ? err.message : err})`);
+    }
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    buf = await res.arrayBuffer();
+  } else {
+    diag('fetch() unavailable, falling back to XMLHttpRequest');
+    buf = await xhrBytes(path);
+  }
+  if (!buf || !buf.byteLength) throw new Error(`${path}: empty response`);
+  diag(`loaded ${path} (${buf.byteLength} bytes)`);
+  return buf;
+}
+
+async function loadDisk(letter) {
+  if (diskCache[letter]) return diskCache[letter];
+  const buf = await fetchBytes(`disks/disk_${letter}.bin`);
+  const fdi = new FDI(buf);
+  if (!fdi.isValid()) throw new Error(`disk ${letter}: invalid FDI`);
+  diskCache[letter] = fdi;
+  return fdi;
+}
+
+// ---- disk panel ----
+function diskButton(drive, letter) {
+  const b = document.createElement('button');
+  b.className = 'disk-btn';
+  b.textContent = letter.toUpperCase();
+  b.dataset.drive = String(drive);
+  b.dataset.letter = letter;
+  b.addEventListener('click', () => { void mountDisk(drive, letter); });
+  return b;
+}
+
+function buildDiskPanel() {
+  for (let d = 0; d < 2; d++) {
+    for (const l of DISKS) driveGrid[d].appendChild(diskButton(d, l));
+  }
+}
+
+function refreshDiskPanel() {
+  for (let d = 0; d < 2; d++) {
+    driveLabel[d].textContent = mounted[d] ? mounted[d].toUpperCase() : '-';
+    const btns = driveGrid[d].children;
+    for (let i = 0; i < btns.length; i++) {
+      const b = btns[i];
+      b.classList.toggle('active', b.dataset.letter === mounted[d]);
+    }
+  }
+}
+
+async function mountDisk(drive, letter) {
+  if (mounted[drive] === letter) return;
+  const btn = driveGrid[drive].querySelector(`[data-letter="${letter}"]`);
+  try {
+    if (!diskCache[letter]) {
+      if (btn) btn.classList.add('loading');
+      setStatus(`ディスク${letter.toUpperCase()} 読込中`);
+      await loadDisk(letter);
+    }
+  } catch (err) {
+    setStatus(`読込エラー: ${err.message}`);
+    toast(`ディスク${letter.toUpperCase()} の読み込みに失敗`);
+    if (btn) btn.classList.remove('loading');
+    return;
+  }
+  if (btn) btn.classList.remove('loading');
+
+  // A floppy can only be in one drive at a time.
+  const other = drive ^ 1;
+  if (mounted[other] === letter) {
+    mounted[other] = null;
+    if (pc98) pc98.fdc.mount(other, null);
+  }
+  mounted[drive] = letter;
+  if (pc98) pc98.mountDisk(drive, diskCache[letter]);
+  refreshDiskPanel();
+  setStatus(`FDD${drive + 1}: ディスク${letter.toUpperCase()}`);
+  toast(`FDD${drive + 1} ← ディスク ${letter.toUpperCase()}`);
+}
+
+function cycleDisk(drive, dir) {
+  const cur = mounted[drive] ? DISKS.indexOf(mounted[drive]) : -1;
+  const next = (cur + dir + DISKS.length) % DISKS.length;
+  void mountDisk(drive, DISKS[next]);
+}
+
+// ---- mouse delta drip ----
+// The bus mouse counters are 8-bit and the emulator clamps them to +-127 per
+// poll, so a big pointer jump (absolute pointer / touch) would be truncated.
+// Queue the deltas and hand out at most MOUSE_STEP mickeys per HC latch
+// (i.e. per game poll), so the game cursor always catches up.
+const MOUSE_STEP = 100;
+function installMouseDrip(mouse) {
+  let px = 0, py = 0;
+  mouse.move = (dx, dy) => { px += dx; py += dy; };
+  const origEdge = mouse._hcEdge.bind(mouse);
+  mouse._hcEdge = (old) => {
+    if ((mouse._portC & 0x80) && !(old & 0x80)) {
+      const sx = Math.max(-MOUSE_STEP, Math.min(MOUSE_STEP, px));
+      const sy = Math.max(-MOUSE_STEP, Math.min(MOUSE_STEP, py));
+      mouse._dx = sx; mouse._dy = sy;
+      px -= sx; py -= sy;
+    }
+    origEdge(old);
+  };
+  const origReset = mouse.reset.bind(mouse);
+  mouse.reset = () => { px = 0; py = 0; origReset(); };
+  mouseDrained = () => px === 0 && py === 0;
+}
+let mouseDrained = () => true;
+
+// ---- emulator lifecycle ----
+function bootMachine() {
+  if (pc98) pc98.stop();
+  pc98 = new PC98(canvas);
+  installMouseDrip(pc98.mouse);
+  pc98.onFPS = (fps) => { cpuSpeed.textContent = `${fps} FPS`; };
+  pc98._speedMultiplier = 1.0;
+  for (let d = 0; d < 2; d++) {
+    if (mounted[d]) pc98.mountDisk(d, diskCache[mounted[d]]);
+  }
+  pc98.reset();
+  pc98.start();
+  paused = false;
+  btnPause.textContent = '一時停止';
+  overlay.classList.add('hidden');
+  setStatus('実行中');
+}
+
+btnReset.addEventListener('click', () => {
+  if (!pc98) return;
+  bootMachine();
+  setStatus('リセット');
+});
+
+btnPause.addEventListener('click', () => {
+  if (!pc98) return;
+  if (paused) {
+    pc98.start();
+    paused = false;
+    btnPause.textContent = '一時停止';
+    setStatus('実行中');
+  } else {
+    pc98.stop();
+    paused = true;
+    btnPause.textContent = '再開';
+    setStatus('一時停止中');
+  }
+});
+
+// ---- mouse (pointer / software cursor on Switch) ----
+// Deltas are derived from absolute canvas coordinates, scaled to 640x400.
+let mouseLastX = null, mouseLastY = null, mouseAccX = 0, mouseAccY = 0;
+let touchUntil = 0; // ignore compat mouse events shortly after touch
+
+function canvasPos(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return [
+    (clientX - rect.left) * (SCREEN_W / rect.width),
+    (clientY - rect.top) * (SCREEN_H / rect.height),
+  ];
+}
+
+function feedMove(x, y) {
+  if (mouseLastX !== null) {
+    mouseAccX += x - mouseLastX;
+    mouseAccY += y - mouseLastY;
+    const dx = Math.trunc(mouseAccX);
+    const dy = Math.trunc(mouseAccY);
+    if (dx !== 0 || dy !== 0) {
+      if (pc98 && pc98.mouse) pc98.mouse.move(dx, dy);
+      mouseAccX -= dx;
+      mouseAccY -= dy;
+    }
+  }
+  mouseLastX = x;
+  mouseLastY = y;
+}
+
+function resetMoveTracking() { mouseLastX = null; mouseLastY = null; }
+
+canvas.addEventListener('mousemove', (e) => {
+  if (Date.now() < touchUntil) return;
+  const [x, y] = canvasPos(e.clientX, e.clientY);
+  feedMove(x, y);
+});
+canvas.addEventListener('mouseleave', resetMoveTracking);
+// Button state machine. Two timing rules:
+//  * a press is only delivered once the queued movement has drained
+//    (mouseDrained()), so a "jump + click" (touch tap / synthetic click)
+//    lands where the pointer went, not where the game cursor used to be;
+//  * a press is held for at least MIN_PRESS_MS before the release is
+//    delivered, since the game samples the mouse from a ~120 Hz interrupt.
+// A tap released before its press could be delivered still produces a
+// full press/release pair.
+const MIN_PRESS_MS = 70;
+const MAX_DRAIN_WAIT_MS = 250; // give up waiting if the game isn't polling
+const btnState = [
+  { wantDown: false, pending: false, wantSince: 0, down: false, downAt: 0 },
+  { wantDown: false, pending: false, wantSince: 0, down: false, downAt: 0 },
+];
+function pressButton(which) {
+  const st = btnState[which];
+  st.wantDown = true;
+  if (!st.down && !st.pending) { st.pending = true; st.wantSince = Date.now(); }
+}
+function releaseButton(which) { btnState[which].wantDown = false; }
+function serviceButtons() {
+  if (!pc98 || !pc98.mouse) return;
+  const now = Date.now();
+  for (let w = 0; w < 2; w++) {
+    const st = btnState[w];
+    if (st.pending && !st.down) {
+      if (!mouseDrained() && now - st.wantSince < MAX_DRAIN_WAIT_MS) continue;
+      st.pending = false;
+      st.down = true; st.downAt = now;
+      pc98.mouse.button(w, true);
+    } else if (st.down && !st.wantDown) {
+      if (now - st.downAt < MIN_PRESS_MS) continue;
+      st.down = false;
+      pc98.mouse.button(w, false);
+    }
+  }
+}
+setInterval(serviceButtons, 4);
+
+canvas.addEventListener('mousedown', (e) => {
+  if (Date.now() < touchUntil) return;
+  e.preventDefault();
+  pressButton(e.button === 2 ? 1 : 0);
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (Date.now() < touchUntil) return;
+  releaseButton(e.button === 2 ? 1 : 0);
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Touch (handheld): drag = move, tap = left click, two-finger tap = right click.
+let touchStartT = 0, touchMoved = 0, touchFingers = 0;
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  touchFingers = Math.max(touchFingers, e.touches.length);
+  if (e.touches.length === 1) {
+    touchStartT = Date.now();
+    touchMoved = 0;
+    resetMoveTracking();
+    const [x, y] = canvasPos(e.touches[0].clientX, e.touches[0].clientY);
+    feedMove(x, y);
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  if (e.touches.length !== 1) return;
+  const [x, y] = canvasPos(e.touches[0].clientX, e.touches[0].clientY);
+  if (mouseLastX !== null) touchMoved += Math.abs(x - mouseLastX) + Math.abs(y - mouseLastY);
+  feedMove(x, y);
+}, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  touchUntil = Date.now() + 700;
+  if (e.touches.length > 0) return; // wait for last finger
+  const fingers = touchFingers;
+  touchFingers = 0;
+  resetMoveTracking();
+  const dur = Date.now() - touchStartT;
+  if (dur < 400 && touchMoved < 12) {
+    const which = fingers >= 2 ? 1 : 0;
+    pressButton(which);
+    releaseButton(which);
+  }
+}, { passive: false });
+canvas.addEventListener('touchcancel', () => { touchFingers = 0; resetMoveTracking(); });
+
+// ---- physical keyboard (USB keyboard on Switch / PC) ----
+document.addEventListener('keydown', (e) => {
+  if (!pc98) return;
+  e.preventDefault();
+  pc98.onKeyDown(e);
+});
+document.addEventListener('keyup', (e) => {
+  if (!pc98) return;
+  pc98.onKeyUp(e);
+});
+
+// ---- virtual keyboard (clickable with cursor / touch) ----
+// [label, code, key]
+const VK_ROWS = [
+  [['ESC', 'Escape', 'Escape'], ['1', 'Digit1', '1'], ['2', 'Digit2', '2'], ['3', 'Digit3', '3'], ['4', 'Digit4', '4'],
+   ['5', 'Digit5', '5'], ['6', 'Digit6', '6'], ['7', 'Digit7', '7'], ['8', 'Digit8', '8'], ['9', 'Digit9', '9'],
+   ['0', 'Digit0', '0'], ['-', 'Minus', '-'], ['BS', 'Backspace', 'Backspace']],
+  [['Q', 'KeyQ', 'q'], ['W', 'KeyW', 'w'], ['E', 'KeyE', 'e'], ['R', 'KeyR', 'r'], ['T', 'KeyT', 't'],
+   ['Y', 'KeyY', 'y'], ['U', 'KeyU', 'u'], ['I', 'KeyI', 'i'], ['O', 'KeyO', 'o'], ['P', 'KeyP', 'p'],
+   ['↑', 'ArrowUp', 'ArrowUp'], ['F1', 'F1', 'F1'], ['F2', 'F2', 'F2']],
+  [['A', 'KeyA', 'a'], ['S', 'KeyS', 's'], ['D', 'KeyD', 'd'], ['F', 'KeyF', 'f'], ['G', 'KeyG', 'g'],
+   ['H', 'KeyH', 'h'], ['J', 'KeyJ', 'j'], ['K', 'KeyK', 'k'], ['L', 'KeyL', 'l'], ['←', 'ArrowLeft', 'ArrowLeft'],
+   ['↓', 'ArrowDown', 'ArrowDown'], ['→', 'ArrowRight', 'ArrowRight'], ['F3', 'F3', 'F3']],
+  [['Z', 'KeyZ', 'z'], ['X', 'KeyX', 'x'], ['C', 'KeyC', 'c'], ['V', 'KeyV', 'v'], ['B', 'KeyB', 'b'],
+   ['N', 'KeyN', 'n'], ['M', 'KeyM', 'm'], ['SPACE', 'Space', ' ', 'xwide'], ['ENTER', 'Enter', 'Enter', 'wide'], ['閉じる', null, null, 'wide']],
+];
+
+function buildVirtualKeyboard() {
+  for (const row of VK_ROWS) {
+    const r = document.createElement('div');
+    r.className = 'vk-row';
+    for (const [label, code, key, cls] of row) {
+      const b = document.createElement('button');
+      b.className = 'vk' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      if (code === null) {
+        b.addEventListener('click', () => toggleVirtualKeyboard(false));
+      } else {
+        const press = (ev) => {
+          ev.preventDefault();
+          if (!pc98) return;
+          b.classList.add('down');
+          pc98.onKeyDown({ code, key });
+        };
+        const release = () => {
+          if (!b.classList.contains('down')) return;
+          b.classList.remove('down');
+          if (pc98) pc98.onKeyUp({ code, key });
+        };
+        b.addEventListener('mousedown', press);
+        b.addEventListener('mouseup', release);
+        b.addEventListener('mouseleave', release);
+        b.addEventListener('touchstart', press, { passive: false });
+        b.addEventListener('touchend', (ev) => { ev.preventDefault(); release(); }, { passive: false });
+      }
+      r.appendChild(b);
+    }
+    vkbdEl.appendChild(r);
+  }
+}
+
+function toggleVirtualKeyboard(show) {
+  const visible = !vkbdEl.classList.contains('hidden');
+  const next = show === undefined ? !visible : show;
+  vkbdEl.classList.toggle('hidden', !next);
+  btnKbd.classList.toggle('active', next);
+}
+btnKbd.addEventListener('click', () => toggleVirtualKeyboard());
+
+// ---- gamepad (Switch Joy-Con / Pro Controller, standard mapping) ----
+// The manifest hides Brewser's software mouse layer, so the game's own arrow
+// cursor is the only pointer on screen (as on a real PC-98) and the pad
+// reaches the page through the Gamepad API unfiltered:
+//   Left stick          = mouse (speed follows deflection)
+//   Right stick         = slow / precise mouse
+//   A (0) / B (1)       = left / right mouse button
+//   D-pad LEFT/RIGHT    = previous / next disk in FDD2
+//   D-pad UP/DOWN       = previous / next disk in FDD1
+//   Y (3)               = toggle virtual keyboard
+// L / R / ZL / ZR / X / -  are left to the shell (back, home, exit, ...).
+const GP_A = 0, GP_B = 1, GP_Y = 3;
+const GP_UP = 12, GP_DOWN = 13, GP_LEFT = 14, GP_RIGHT = 15;
+const STICK_DEADZONE = 0.18;
+const STICK_MAX_PX   = 9;    // px per poll tick at full deflection (left stick)
+const STICK_FINE_PX  = 2;    // right stick
+const GP_POLL_MS     = 16;
+const gpPrev = {};
+let stickAccX = 0, stickAccY = 0;
+
+function stickDelta(ax, ay, maxPx) {
+  const mag = Math.hypot(ax, ay);
+  if (mag < STICK_DEADZONE) return [0, 0];
+  const t = Math.min(1, (mag - STICK_DEADZONE) / (1 - STICK_DEADZONE));
+  const speed = t * t * maxPx;
+  return [ax / mag * speed, ay / mag * speed];
+}
+
+function pollGamepads() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : null;
+  if (!pads) return;
+  let mx = 0, my = 0;
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
+    if (!p || !p.buttons) continue;
+    const prev = gpPrev[i] || (gpPrev[i] = {});
+    const pressed = (idx) => !!(p.buttons[idx] && p.buttons[idx].pressed);
+    const edge = (idx) => { const now = pressed(idx); const was = !!prev[idx]; prev[idx] = now; return now && !was; };
+    const axes = p.axes || [];
+    const [lx, ly] = stickDelta(axes[0] || 0, axes[1] || 0, STICK_MAX_PX);
+    const [rx, ry] = stickDelta(axes[2] || 0, axes[3] || 0, STICK_FINE_PX);
+    mx += lx + rx; my += ly + ry;
+
+    const a = pressed(GP_A), b = pressed(GP_B);
+    if (a && !prev.a) pressButton(0);
+    if (!a && prev.a) releaseButton(0);
+    if (b && !prev.b) pressButton(1);
+    if (!b && prev.b) releaseButton(1);
+    prev.a = a; prev.b = b;
+
+    if (edge(GP_LEFT))  cycleDisk(1, -1);
+    if (edge(GP_RIGHT)) cycleDisk(1, +1);
+    if (edge(GP_UP))    cycleDisk(0, -1);
+    if (edge(GP_DOWN))  cycleDisk(0, +1);
+    if (edge(GP_Y))     toggleVirtualKeyboard();
+  }
+  if (mx !== 0 || my !== 0) {
+    stickAccX += mx; stickAccY += my;
+    const dx = Math.trunc(stickAccX), dy = Math.trunc(stickAccY);
+    if ((dx !== 0 || dy !== 0) && pc98 && pc98.mouse) {
+      pc98.mouse.move(dx, dy);
+      stickAccX -= dx; stickAccY -= dy;
+    }
+  }
+}
+setInterval(pollGamepads, GP_POLL_MS);
+
+// ---- rAF watchdog ----
+// PC98._loop reschedules itself with requestAnimationFrame. If the host
+// stops delivering animation frames (hidden/offscreen surface) the machine
+// would freeze; drive the loop from a timer while that is the case.
+setInterval(() => {
+  if (!pc98 || !pc98._running || paused) return;
+  if (performance.now() - pc98._lastTime < 120) return;
+  if (pc98._rafId) { cancelAnimationFrame(pc98._rafId); pc98._rafId = null; }
+  pc98._loop();
+}, 16);
+
+// ---- status indicator ----
+setInterval(() => {
+  if (!pc98) return;
+  const now = Date.now();
+  const lastAct = pc98.video._fddActivity || 0;
+  fddAct.textContent = (now - lastAct < 500) ? '● FDD' : '';
+}, 100);
+
+// ---- boot ----
+async function main() {
+  diag('main() start');
+  layout();
+  buildDiskPanel();
+  buildVirtualKeyboard();
+  refreshDiskPanel();
+  diag('UI built');
+
+  try {
+    overlayMsg.textContent = 'フォント読み込み中...';
+    Video.cgrom = new Uint8Array(await fetchBytes('cgrom.bin'));
+  } catch (err) {
+    // Not fatal: video.js falls back to rasterising glyphs with a canvas font.
+    diag('cgrom.bin unavailable, using canvas font: ' + (err && err.message ? err.message : err));
+    Video.cgrom = null;
+  }
+
+  overlayMsg.textContent = 'ディスク読み込み中...';
+  await loadDisk(BOOT_FDD1);
+  await loadDisk(BOOT_FDD2);
+  mounted[0] = BOOT_FDD1;
+  mounted[1] = BOOT_FDD2;
+  refreshDiskPanel();
+
+  bootMachine();
+  diag('machine running');
+}
+
+main().catch((err) => fatal('main', err));
+
+</script>
 </body>
 </html>

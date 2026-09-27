@@ -4,6 +4,37 @@
 // Disks are bundled under disks/ (renamed *.bin so the Brewser resource
 // loader serves them), the CG ROM is pre-rendered in cgrom.bin.
 
+// ---- diagnostics ----
+// On a release Brewser build `console.log` is silent and only `console.error`
+// reaches the on-device log file, so every boot step is reported with
+// console.error and mirrored to the on-screen overlay. If the app ever comes
+// up blank again, the last `[pc98]` line in the log says how far it got.
+const BOOT_LOG = [];
+function diag(msg) {
+  BOOT_LOG.push(msg);
+  try { console.error('[pc98] ' + msg); } catch (_) {}
+}
+function fatal(where, err) {
+  const detail = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err);
+  diag('FATAL ' + where + ': ' + detail);
+  try {
+    const el = document.getElementById('overlay-msg');
+    const ov = document.getElementById('overlay');
+    if (el && ov) {
+      el.className = 'overlay-msg error';
+      const NL = String.fromCharCode(10);
+      el.textContent = 'エラー (' + where + ')' + NL + detail + NL + NL
+        + '--- boot log ---' + NL + BOOT_LOG.join(NL);
+      ov.classList.remove('hidden');
+    }
+  } catch (_) {}
+}
+diag('script start');
+try {
+  window.addEventListener('error', (e) => fatal('window.error', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => fatal('unhandledrejection', e.reason));
+} catch (_) {}
+
 const DISKS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
 const BOOT_FDD1 = 'a';
 const BOOT_FDD2 = 'b';
@@ -31,6 +62,20 @@ const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
 
+// ---- canvas layout ----
+// The runtime viewport is 1280x720 on Switch but the page must not assume it:
+// scale the 640x400 framebuffer to whatever the screen area actually is,
+// keeping integer-friendly proportions and the 8:5 aspect.
+function layout() {
+  const box = canvas.parentNode;
+  const w = box.clientWidth || (window.innerWidth - 160) || 1120;
+  const h = box.clientHeight || window.innerHeight || 720;
+  const scale = Math.min(w / SCREEN_W, h / SCREEN_H);
+  canvas.style.width  = Math.max(1, Math.floor(SCREEN_W * scale)) + 'px';
+  canvas.style.height = Math.max(1, Math.floor(SCREEN_H * scale)) + 'px';
+}
+try { window.addEventListener('resize', layout); } catch (_) {}
+
 function setStatus(msg) { statusText.textContent = msg; }
 
 function toast(msg, ms = 1800) {
@@ -41,10 +86,39 @@ function toast(msg, ms = 1800) {
 }
 
 // ---- resource loading ----
+function xhrBytes(path) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', path, true);
+    xhr.responseType = 'arraybuffer';
+    xhr.onload = () => {
+      // A local (non-HTTP) load reports status 0 on success.
+      if (xhr.status === 0 || (xhr.status >= 200 && xhr.status < 300)) resolve(xhr.response);
+      else reject(new Error(`${path}: HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error(`${path}: XHR error`));
+    xhr.send();
+  });
+}
+
 async function fetchBytes(path) {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  return await res.arrayBuffer();
+  let buf;
+  if (typeof fetch === 'function') {
+    let res;
+    try {
+      res = await fetch(path);
+    } catch (err) {
+      throw new Error(`${path}: fetch failed (${err && err.message ? err.message : err})`);
+    }
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    buf = await res.arrayBuffer();
+  } else {
+    diag('fetch() unavailable, falling back to XMLHttpRequest');
+    buf = await xhrBytes(path);
+  }
+  if (!buf || !buf.byteLength) throw new Error(`${path}: empty response`);
+  diag(`loaded ${path} (${buf.byteLength} bytes)`);
+  return buf;
 }
 
 async function loadDisk(letter) {
@@ -466,32 +540,31 @@ setInterval(() => {
 
 // ---- boot ----
 async function main() {
+  diag('main() start');
+  layout();
   buildDiskPanel();
   buildVirtualKeyboard();
   refreshDiskPanel();
+  diag('UI built');
 
   try {
     overlayMsg.textContent = 'フォント読み込み中...';
     Video.cgrom = new Uint8Array(await fetchBytes('cgrom.bin'));
   } catch (err) {
-    console.warn('cgrom.bin not loaded, falling back to canvas font:', err);
+    // Not fatal: video.js falls back to rasterising glyphs with a canvas font.
+    diag('cgrom.bin unavailable, using canvas font: ' + (err && err.message ? err.message : err));
     Video.cgrom = null;
   }
 
-  try {
-    overlayMsg.textContent = 'ディスク読み込み中...';
-    await loadDisk(BOOT_FDD1);
-    await loadDisk(BOOT_FDD2);
-  } catch (err) {
-    overlayMsg.textContent = `ディスクの読み込みに失敗しました\n${err.message}`;
-    setStatus('エラー');
-    return;
-  }
+  overlayMsg.textContent = 'ディスク読み込み中...';
+  await loadDisk(BOOT_FDD1);
+  await loadDisk(BOOT_FDD2);
   mounted[0] = BOOT_FDD1;
   mounted[1] = BOOT_FDD2;
   refreshDiskPanel();
 
   bootMachine();
+  diag('machine running');
 }
 
-main();
+main().catch((err) => fatal('main', err));

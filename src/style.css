@@ -9,38 +9,33 @@ html, body {
   font-family: 'MS Gothic', 'Osaka-Mono', sans-serif;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Keep the fixed 1280x720 layout centred if the runtime viewport is larger */
-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 1280x720 (Switch) layout: 1120x700 screen + 160px side panel */
+/* Fills whatever viewport the runtime gives us (1280x720 on Switch).
+   The canvas is sized in JS (layout()) so no CSS aspect-ratio support
+   is needed. */
 #app {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: row;
-  width: 1280px;
-  height: 720px;
   background: #000;
 }
 
 #screen-container {
   position: relative;
-  width: 1120px;
-  height: 720px;
+  flex: 1;
+  height: 100%;
   background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 #screen {
   display: block;
-  width: 1120px;
-  height: 700px;
   background: #000;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -48,40 +43,41 @@ body {
 
 .overlay {
   position: absolute;
-  left: 0; top: 0;
-  width: 1120px;
-  height: 720px;
-  background: rgba(0,0,0,0.75);
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.82);
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px;
 }
 .overlay.hidden { display: none; }
 
 .overlay-msg {
   color: #88aaff;
-  font-size: 28px;
+  font-size: 24px;
   text-align: center;
-  line-height: 1.5;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
+.overlay-msg.error { color: #ff8888; font-size: 18px; text-align: left; }
 
 .toast {
   position: absolute;
   left: 20px;
   top: 20px;
   padding: 10px 18px;
-  background: rgba(20, 30, 60, 0.9);
+  background: #141e3c;
   border: 2px solid #4a6fd8;
   color: #fff;
   font-size: 22px;
-  border-radius: 6px;
 }
 .toast.hidden { display: none; }
 
 /* ---- side panel ---- */
 #panel {
   width: 160px;
-  height: 720px;
+  height: 100%;
   background: #1c1c2e;
   border-left: 2px solid #444;
   padding: 8px 6px;
@@ -96,7 +92,6 @@ body {
   font-size: 16px;
   text-align: center;
   line-height: 1.3;
-  margin-bottom: 2px;
 }
 
 .drive-head {
@@ -106,10 +101,7 @@ body {
   white-space: nowrap;
 }
 
-.drive-label {
-  color: #ffd866;
-  font-weight: bold;
-}
+.drive-label { color: #ffd866; font-weight: bold; }
 
 .disk-grid {
   display: flex;
@@ -127,17 +119,9 @@ body {
   font-family: inherit;
   font-weight: bold;
   cursor: pointer;
-  border-radius: 4px;
 }
-.disk-btn.active {
-  background: #2255aa;
-  color: #fff;
-  border-color: #88aaff;
-}
-.disk-btn.loading {
-  background: #555522;
-  color: #ffd866;
-}
+.disk-btn.active { background: #2255aa; color: #fff; border-color: #88aaff; }
+.disk-btn.loading { background: #555522; color: #ffd866; }
 
 .panel-buttons {
   display: flex;
@@ -155,12 +139,8 @@ body {
   font-size: 14px;
   font-family: inherit;
   cursor: pointer;
-  border-radius: 4px;
 }
-.btn.active {
-  background: #2255aa;
-  color: #fff;
-}
+.btn.active { background: #2255aa; color: #fff; }
 
 .help {
   margin-top: auto;
@@ -183,10 +163,10 @@ body {
 .vkbd {
   position: absolute;
   left: 0;
+  right: 0;
   bottom: 0;
-  width: 1120px;
   padding: 8px;
-  background: rgba(10, 12, 30, 0.92);
+  background: #0a0c1e;
   border-top: 2px solid #4a6fd8;
   display: flex;
   flex-direction: column;
@@ -207,7 +187,6 @@ body {
   background: #33364d;
   color: #eee;
   border: 1px solid #6a6f95;
-  border-radius: 5px;
   font-size: 18px;
   font-family: inherit;
   cursor: pointer;
