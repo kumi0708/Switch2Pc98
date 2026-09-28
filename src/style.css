@@ -62,6 +62,23 @@ html, body {
 }
 .overlay-msg.error { color: #ff8888; font-size: 18px; text-align: left; }
 
+/* Drive LED, in the screen area's top-right corner rather than in the
+   status column — it updates several times a second and sat on top of the
+   other status lines when the panel ran out of vertical room. */
+.fdd-led {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  padding: 4px 10px;
+  background: #1a1200;
+  border: 1px solid #5a4400;
+  color: #ffaa00;
+  font-size: 14px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.fdd-led.hidden { display: none; }
+
 .toast {
   position: absolute;
   left: 20px;
@@ -142,11 +159,17 @@ html, body {
 }
 .btn.active { background: #2255aa; color: #fff; }
 
+/* The help block is the only part allowed to give up space: without
+   min-height/overflow it keeps its full height in the column and squeezes
+   the status lines on top of each other on a 720px-tall screen. */
 .help {
   margin-top: auto;
   color: #777;
   font-size: 11px;
   line-height: 1.5;
+  min-height: 0;
+  overflow: hidden;
+  flex-shrink: 1;
 }
 
 #status-bar {
@@ -156,7 +179,16 @@ html, body {
   color: #888;
   border-top: 1px solid #333;
   padding-top: 4px;
+  flex-shrink: 0;
 }
+#status-bar > span {
+  display: block;
+  min-height: 14px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#cpu-speed { color: #8fd; }
 #fdd-activity { color: #ffaa00; }
 
 /* ---- virtual keyboard overlay ---- */

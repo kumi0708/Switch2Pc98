@@ -56,11 +56,13 @@ const btnReset   = document.getElementById('btn-reset');
 const statusText = document.getElementById('status-text');
 const cpuSpeed   = document.getElementById('cpu-speed');
 const fddAct     = document.getElementById('fdd-activity');
+const fddLed     = document.getElementById('fdd-led');
 const driveLabel = [document.getElementById('fdd1-label'), document.getElementById('fdd2-label')];
 const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementById('fdd2-grid')];
 
 let pc98 = null;
 let paused = false;
+let lastFps = 0;
 const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
@@ -231,7 +233,7 @@ function bootMachine() {
   if (pc98) pc98.stop();
   pc98 = new PC98(canvas);
   installMouseDrip(pc98.mouse);
-  pc98.onFPS = (fps) => { cpuSpeed.textContent = `${fps} FPS`; };
+  pc98.onFPS = (fps) => { lastFps = fps; };
   pc98._speedMultiplier = 1.0;
   for (let d = 0; d < 2; d++) {
     if (mounted[d]) pc98.mountDisk(d, diskCache[mounted[d]]);
@@ -557,12 +559,31 @@ setInterval(() => {
 }, 250);
 
 // ---- status indicator ----
+// Emulated clock rate matters more than frame rate here: the PC-98 ran at
+// 10 MHz, so "0.4 MHz" means the game is crawling at 1/25 speed while
+// "9.8 MHz" means it is keeping up. CS:IP shows whether the CPU is
+// actually advancing or spinning in one place.
+let lastCycles = 0, lastCycleT = 0;
 setInterval(() => {
-  if (!pc98) return;
+  if (!pc98) {
+    cpuSpeed.textContent = '';
+    fddAct.textContent = '';
+    fddLed.classList.add('hidden');
+    return;
+  }
   const now = Date.now();
-  const lastAct = pc98.video._fddActivity || 0;
-  fddAct.textContent = (now - lastAct < 500) ? '● FDD' : '';
-}, 100);
+  const cyc = pc98.cpu.totalCycles;
+  if (lastCycleT) {
+    const mhz = (cyc - lastCycles) / ((now - lastCycleT) * 1000);
+    cpuSpeed.textContent = `${lastFps} FPS  ${mhz.toFixed(2)} MHz`;
+  }
+  lastCycles = cyc;
+  lastCycleT = now;
+
+  const hex = (n, w) => n.toString(16).toUpperCase().padStart(w, '0');
+  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)}`;
+  fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
+}, 500);
 
 // ---- boot ----
 // Hand control back to the runtime so it can paint. The shell populates the

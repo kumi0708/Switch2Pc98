@@ -69,6 +69,23 @@ html, body {
 }
 .overlay-msg.error { color: #ff8888; font-size: 18px; text-align: left; }
 
+/* Drive LED, in the screen area's top-right corner rather than in the
+   status column — it updates several times a second and sat on top of the
+   other status lines when the panel ran out of vertical room. */
+.fdd-led {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  padding: 4px 10px;
+  background: #1a1200;
+  border: 1px solid #5a4400;
+  color: #ffaa00;
+  font-size: 14px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.fdd-led.hidden { display: none; }
+
 .toast {
   position: absolute;
   left: 20px;
@@ -149,11 +166,17 @@ html, body {
 }
 .btn.active { background: #2255aa; color: #fff; }
 
+/* The help block is the only part allowed to give up space: without
+   min-height/overflow it keeps its full height in the column and squeezes
+   the status lines on top of each other on a 720px-tall screen. */
 .help {
   margin-top: auto;
   color: #777;
   font-size: 11px;
   line-height: 1.5;
+  min-height: 0;
+  overflow: hidden;
+  flex-shrink: 1;
 }
 
 #status-bar {
@@ -163,7 +186,16 @@ html, body {
   color: #888;
   border-top: 1px solid #333;
   padding-top: 4px;
+  flex-shrink: 0;
 }
+#status-bar > span {
+  display: block;
+  min-height: 14px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#cpu-speed { color: #8fd; }
 #fdd-activity { color: #ffaa00; }
 
 /* ---- virtual keyboard overlay ---- */
@@ -211,6 +243,7 @@ html, body {
     <div id="overlay" class="overlay">
       <div class="overlay-msg" id="overlay-msg">起動中...</div>
     </div>
+    <div id="fdd-led" class="fdd-led hidden">● FDD</div>
     <div id="toast" class="toast hidden"></div>
     <div id="vkbd" class="vkbd hidden"></div>
   </div>
@@ -2852,37 +2885,60 @@ class PC98 {
     const mem = this.mem;
     const video = this.video;
 
-    // Intercept GVRAM reads/writes (A8000-BFFFF)
-    const origRead8  = mem.read8.bind(mem);
-    const origWrite8 = mem.write8.bind(mem);
+    // Intercept GVRAM reads/writes (A8000-BFFFF, E0000-E7FFF).
+    //
+    // This is the hottest code in the emulator — every instruction fetch and
+    // operand access goes through it — so it touches `mem.data` directly
+    // instead of delegating to Memory's own accessors, and guards the VRAM
+    // ranges behind a single comparison that the common case (conventional
+    // memory, below 0xA0000) fails immediately. The 16-bit accessors keep a
+    // fast path that skips the per-byte dispatch entirely when both bytes
+    // land below the mapped ranges.
+    const data = mem.data;
 
     mem.read8 = (addr) => {
       addr &= 0xFFFFF;
-      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
+      if (addr >= 0xA8000 && (addr < 0xC0000 || (addr >= 0xE0000 && addr < 0xE8000))) {
         return video.readGVRAM(addr);
       }
-      return origRead8(addr);
+      return data[addr];
     };
 
     mem.write8 = (addr, val) => {
       addr &= 0xFFFFF;
       val &= 0xFF;
-      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
-        origWrite8(addr, val);
-        video.writeGVRAM(addr, val);
-        return;
+      if (addr >= 0xA0000) {
+        // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM,
+        // so mark the frame dirty here — `Video.render` skips untouched
+        // frames and would otherwise never notice a text-only update.
+        if (addr < 0xA4000) {
+          video._dirty = true;
+          data[addr] = val;
+          return;
+        }
+        if (addr >= 0xA8000 && (addr < 0xC0000 || (addr >= 0xE0000 && addr < 0xE8000))) {
+          data[addr] = val;
+          video.writeGVRAM(addr, val);
+          return;
+        }
       }
-      // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM, so
-      // mark the frame dirty here — `Video.render` skips untouched frames and
-      // would otherwise never notice a text-only update.
-      if (addr >= 0xA0000 && addr < 0xA4000) video._dirty = true;
-      origWrite8(addr, val);
+      data[addr] = val;
     };
 
     mem.read16 = (addr) => {
+      addr &= 0xFFFFF;
+      // Both bytes below the first mapped range: read them straight out.
+      if (addr < 0xA7FFF) return data[addr] | (data[addr + 1] << 8);
       return mem.read8(addr) | (mem.read8(addr + 1) << 8);
     };
     mem.write16 = (addr, val) => {
+      addr &= 0xFFFFF;
+      // Below text VRAM, so neither byte needs the dirty flag or the GRCG.
+      if (addr < 0x9FFFF) {
+        data[addr] = val & 0xFF;
+        data[addr + 1] = (val >> 8) & 0xFF;
+        return;
+      }
       mem.write8(addr, val & 0xFF);
       mem.write8(addr + 1, (val >> 8) & 0xFF);
     };
@@ -3160,11 +3216,13 @@ const btnReset   = document.getElementById('btn-reset');
 const statusText = document.getElementById('status-text');
 const cpuSpeed   = document.getElementById('cpu-speed');
 const fddAct     = document.getElementById('fdd-activity');
+const fddLed     = document.getElementById('fdd-led');
 const driveLabel = [document.getElementById('fdd1-label'), document.getElementById('fdd2-label')];
 const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementById('fdd2-grid')];
 
 let pc98 = null;
 let paused = false;
+let lastFps = 0;
 const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
@@ -3335,7 +3393,7 @@ function bootMachine() {
   if (pc98) pc98.stop();
   pc98 = new PC98(canvas);
   installMouseDrip(pc98.mouse);
-  pc98.onFPS = (fps) => { cpuSpeed.textContent = `${fps} FPS`; };
+  pc98.onFPS = (fps) => { lastFps = fps; };
   pc98._speedMultiplier = 1.0;
   for (let d = 0; d < 2; d++) {
     if (mounted[d]) pc98.mountDisk(d, diskCache[mounted[d]]);
@@ -3661,12 +3719,31 @@ setInterval(() => {
 }, 250);
 
 // ---- status indicator ----
+// Emulated clock rate matters more than frame rate here: the PC-98 ran at
+// 10 MHz, so "0.4 MHz" means the game is crawling at 1/25 speed while
+// "9.8 MHz" means it is keeping up. CS:IP shows whether the CPU is
+// actually advancing or spinning in one place.
+let lastCycles = 0, lastCycleT = 0;
 setInterval(() => {
-  if (!pc98) return;
+  if (!pc98) {
+    cpuSpeed.textContent = '';
+    fddAct.textContent = '';
+    fddLed.classList.add('hidden');
+    return;
+  }
   const now = Date.now();
-  const lastAct = pc98.video._fddActivity || 0;
-  fddAct.textContent = (now - lastAct < 500) ? '● FDD' : '';
-}, 100);
+  const cyc = pc98.cpu.totalCycles;
+  if (lastCycleT) {
+    const mhz = (cyc - lastCycles) / ((now - lastCycleT) * 1000);
+    cpuSpeed.textContent = `${lastFps} FPS  ${mhz.toFixed(2)} MHz`;
+  }
+  lastCycles = cyc;
+  lastCycleT = now;
+
+  const hex = (n, w) => n.toString(16).toUpperCase().padStart(w, '0');
+  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)}`;
+  fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
+}, 500);
 
 // ---- boot ----
 // Hand control back to the runtime so it can paint. The shell populates the

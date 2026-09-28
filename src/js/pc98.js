@@ -34,37 +34,60 @@ class PC98 {
     const mem = this.mem;
     const video = this.video;
 
-    // Intercept GVRAM reads/writes (A8000-BFFFF)
-    const origRead8  = mem.read8.bind(mem);
-    const origWrite8 = mem.write8.bind(mem);
+    // Intercept GVRAM reads/writes (A8000-BFFFF, E0000-E7FFF).
+    //
+    // This is the hottest code in the emulator — every instruction fetch and
+    // operand access goes through it — so it touches `mem.data` directly
+    // instead of delegating to Memory's own accessors, and guards the VRAM
+    // ranges behind a single comparison that the common case (conventional
+    // memory, below 0xA0000) fails immediately. The 16-bit accessors keep a
+    // fast path that skips the per-byte dispatch entirely when both bytes
+    // land below the mapped ranges.
+    const data = mem.data;
 
     mem.read8 = (addr) => {
       addr &= 0xFFFFF;
-      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
+      if (addr >= 0xA8000 && (addr < 0xC0000 || (addr >= 0xE0000 && addr < 0xE8000))) {
         return video.readGVRAM(addr);
       }
-      return origRead8(addr);
+      return data[addr];
     };
 
     mem.write8 = (addr, val) => {
       addr &= 0xFFFFF;
       val &= 0xFF;
-      if ((addr >= 0xA8000 && addr < 0xC0000) || (addr >= 0xE0000 && addr < 0xE8000)) {
-        origWrite8(addr, val);
-        video.writeGVRAM(addr, val);
-        return;
+      if (addr >= 0xA0000) {
+        // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM,
+        // so mark the frame dirty here — `Video.render` skips untouched
+        // frames and would otherwise never notice a text-only update.
+        if (addr < 0xA4000) {
+          video._dirty = true;
+          data[addr] = val;
+          return;
+        }
+        if (addr >= 0xA8000 && (addr < 0xC0000 || (addr >= 0xE0000 && addr < 0xE8000))) {
+          data[addr] = val;
+          video.writeGVRAM(addr, val);
+          return;
+        }
       }
-      // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM, so
-      // mark the frame dirty here — `Video.render` skips untouched frames and
-      // would otherwise never notice a text-only update.
-      if (addr >= 0xA0000 && addr < 0xA4000) video._dirty = true;
-      origWrite8(addr, val);
+      data[addr] = val;
     };
 
     mem.read16 = (addr) => {
+      addr &= 0xFFFFF;
+      // Both bytes below the first mapped range: read them straight out.
+      if (addr < 0xA7FFF) return data[addr] | (data[addr + 1] << 8);
       return mem.read8(addr) | (mem.read8(addr + 1) << 8);
     };
     mem.write16 = (addr, val) => {
+      addr &= 0xFFFFF;
+      // Below text VRAM, so neither byte needs the dirty flag or the GRCG.
+      if (addr < 0x9FFFF) {
+        data[addr] = val & 0xFF;
+        data[addr + 1] = (val >> 8) & 0xFF;
+        return;
+      }
       mem.write8(addr, val & 0xFF);
       mem.write8(addr + 1, (val >> 8) & 0xFF);
     };
