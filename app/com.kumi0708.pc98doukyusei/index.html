@@ -3224,6 +3224,12 @@ let pc98 = null;
 let paused = false;
 let lastFps = 0;
 let paintCount = 0;
+// Host hard-repaint hook, present only inside the Brewser runtime. Looked up
+// once so the per-frame path is a plain call, and reported in the status bar
+// so the console can say whether this build is taking the hook at all.
+const repaintHook = (typeof globalThis !== 'undefined'
+  && typeof globalThis.__swbRepaint === 'function')
+  ? globalThis.__swbRepaint : null;
 const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
@@ -3400,7 +3406,19 @@ function bootMachine() {
   paintCount = 0;
   const video = pc98.video;
   const origRender = video.render.bind(video);
-  video.render = () => { const dirty = video._dirty; origRender(); if (dirty) paintCount++; };
+  video.render = () => {
+    const dirty = video._dirty;
+    origRender();
+    if (!dirty) return;
+    paintCount++;
+    // The host composites the page through a cached bake of the element
+    // tree, and drawing into a canvas does not invalidate that cache — on
+    // the console the canvas was composited once and every later frame was
+    // dropped, which is why a self-test pattern drawn before boot stayed on
+    // screen forever. `__swbRepaint` is the host's page-callable hard
+    // repaint; call it only on frames that actually changed.
+    if (repaintHook) repaintHook();
+  };
   pc98.onFPS = (fps) => { lastFps = fps; };
   pc98._speedMultiplier = 1.0;
   for (let d = 0; d < 2; d++) {
@@ -3754,7 +3772,7 @@ setInterval(() => {
   // P = frames actually pushed to the canvas. If this keeps climbing while
   // the screen stays black, the emulator is painting and the display path
   // is losing it; if it stops, the machine stopped changing the screen.
-  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}`;
+  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}`;
   fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
 }, 500);
 
@@ -3782,7 +3800,7 @@ function yieldToPaint() {
 // (ordinary drawing) and the bottom with putImageData (what Video.render
 // uses). Whichever half is missing on the console names the broken path.
 // Set SELFTEST_MS to 0 to skip it.
-const SELFTEST_MS = 6000;
+const SELFTEST_MS = 3000;
 
 function canvasSelfTest() {
   if (SELFTEST_MS <= 0) return Promise.resolve();
