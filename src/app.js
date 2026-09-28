@@ -623,11 +623,6 @@ function syncViewport() {
   const h = window.innerHeight || 0;
   if (!w || !h || (w === lastVpW && h === lastVpH)) return;
   lastVpW = w; lastVpH = h;
-  if (glPresenter) {
-    canvas.width = w;
-    canvas.height = h;
-    glPresenter.resize();
-  }
   layout();
   if (pc98) pc98.video._dirty = true;
   diag('viewport now ' + w + 'x' + h);
@@ -703,14 +698,12 @@ const FS_SRC =
 let glPresenter = null;   // { present(frame), resize() }
 
 function createGLPresenter() {
-  // Size the drawing buffer to the screen BEFORE creating the context: the
-  // host's bridge framebuffer is screen-sized and it copies that whole
-  // region, so a smaller canvas leaves the copy reading pixels the page
-  // never wrote.
-  const bw = Math.max(SCREEN_W, Math.min(1920, window.innerWidth || 1280));
-  const bh = Math.max(SCREEN_H, Math.min(1080, window.innerHeight || 720));
-  canvas.width = bw;
-  canvas.height = bh;
+  // The drawing buffer size comes from the canvas element's width/height
+  // ATTRIBUTES and is deliberately not reassigned here. Assigning the
+  // properties reported the new size back to the page while the host's GL
+  // bridge kept the region declared in the tag, so the picture was rendered
+  // at one size and copied at another — a zoomed crop on screen.
+  const bw = canvas.width, bh = canvas.height;
 
   const attrs = { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: false };
   let gl = null;
