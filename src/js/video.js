@@ -433,6 +433,16 @@ class Video {
 
   // Render frame to canvas
   render() {
+    // Recomposing 640x400 from the four bit-planes and then repainting the
+    // 80x25 text layer is ~500k inner-loop iterations plus a 1 MB
+    // putImageData, and an adventure game leaves the screen untouched for
+    // seconds at a time. Skip the whole frame unless something actually
+    // wrote to GVRAM, text VRAM, the palette or the display page — on the
+    // Switch this is the difference between a few fps and a responsive
+    // screen. Every writer sets `_dirty` (GVRAM/palette/page in this file,
+    // text VRAM in PC98._setupMemoryMap).
+    if (!this._dirty) return;
+
     const pixels = new Uint32Array(this.imgData.data.buffer);
     const data   = this.imgData.data;
 

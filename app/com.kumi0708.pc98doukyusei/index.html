@@ -2094,6 +2094,16 @@ class Video {
 
   // Render frame to canvas
   render() {
+    // Recomposing 640x400 from the four bit-planes and then repainting the
+    // 80x25 text layer is ~500k inner-loop iterations plus a 1 MB
+    // putImageData, and an adventure game leaves the screen untouched for
+    // seconds at a time. Skip the whole frame unless something actually
+    // wrote to GVRAM, text VRAM, the palette or the display page — on the
+    // Switch this is the difference between a few fps and a responsive
+    // screen. Every writer sets `_dirty` (GVRAM/palette/page in this file,
+    // text VRAM in PC98._setupMemoryMap).
+    if (!this._dirty) return;
+
     const pixels = new Uint32Array(this.imgData.data.buffer);
     const data   = this.imgData.data;
 
@@ -2862,6 +2872,10 @@ class PC98 {
         video.writeGVRAM(addr, val);
         return;
       }
+      // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM, so
+      // mark the frame dirty here — `Video.render` skips untouched frames and
+      // would otherwise never notice a text-only update.
+      if (addr >= 0xA0000 && addr < 0xA4000) video._dirty = true;
       origWrite8(addr, val);
     };
 
@@ -3100,9 +3114,12 @@ class PC98 {
 // console.error and mirrored to the on-screen overlay. If the app ever comes
 // up blank again, the last `[pc98]` line in the log says how far it got.
 const BOOT_LOG = [];
+const BOOT_T0 = Date.now();
 function diag(msg) {
-  BOOT_LOG.push(msg);
-  try { console.error('[pc98] ' + msg); } catch (_) {}
+  // Elapsed ms in every line so a slow stage is obvious from the log alone.
+  const line = '+' + (Date.now() - BOOT_T0) + 'ms ' + msg;
+  BOOT_LOG.push(line);
+  try { console.error('[pc98] ' + line); } catch (_) {}
 }
 function fatal(where, err) {
   const detail = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err);
@@ -3221,19 +3238,22 @@ async function loadDisk(letter) {
 }
 
 // ---- disk panel ----
-function diskButton(drive, letter) {
-  const b = document.createElement('button');
-  b.className = 'disk-btn';
-  b.textContent = letter.toUpperCase();
-  b.dataset.drive = String(drive);
-  b.dataset.letter = letter;
-  b.addEventListener('click', () => { void mountDisk(drive, letter); });
-  return b;
-}
-
+// Built with one innerHTML assignment per drive and a single delegated
+// listener rather than createElement/addEventListener per button: on the
+// runtime's own DOM implementation each element and listener costs real
+// time at startup, and this is 18 buttons before anything is on screen.
 function buildDiskPanel() {
   for (let d = 0; d < 2; d++) {
-    for (const l of DISKS) driveGrid[d].appendChild(diskButton(d, l));
+    let html = '';
+    for (const l of DISKS) {
+      html += `<button class="disk-btn" data-letter="${l}">${l.toUpperCase()}</button>`;
+    }
+    driveGrid[d].innerHTML = html;
+    const drive = d;
+    driveGrid[d].addEventListener('click', (e) => {
+      const letter = e.target && e.target.getAttribute && e.target.getAttribute('data-letter');
+      if (letter) void mountDisk(drive, letter);
+    });
   }
 }
 
@@ -3243,7 +3263,8 @@ function refreshDiskPanel() {
     const btns = driveGrid[d].children;
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i];
-      b.classList.toggle('active', b.dataset.letter === mounted[d]);
+      const on = b.getAttribute('data-letter') === mounted[d];
+      b.className = on ? 'disk-btn active' : 'disk-btn';
     }
   }
 }
@@ -3500,43 +3521,58 @@ const VK_ROWS = [
    ['N', 'KeyN', 'n'], ['M', 'KeyM', 'm'], ['SPACE', 'Space', ' ', 'xwide'], ['ENTER', 'Enter', 'Enter', 'wide'], ['閉じる', null, null, 'wide']],
 ];
 
+// Built on first open, not at startup: ~50 keys with a listener each is the
+// single most expensive piece of DOM in the page, and the game is played
+// with the mouse — most sessions never open the keyboard at all. One
+// innerHTML pass plus delegated listeners on the container.
+let vkbdBuilt = false;
 function buildVirtualKeyboard() {
+  if (vkbdBuilt) return;
+  vkbdBuilt = true;
+  let html = '';
   for (const row of VK_ROWS) {
-    const r = document.createElement('div');
-    r.className = 'vk-row';
+    html += '<div class="vk-row">';
     for (const [label, code, key, cls] of row) {
-      const b = document.createElement('button');
-      b.className = 'vk' + (cls ? ' ' + cls : '');
-      b.textContent = label;
-      if (code === null) {
-        b.addEventListener('click', () => toggleVirtualKeyboard(false));
-      } else {
-        const press = (ev) => {
-          ev.preventDefault();
-          if (!pc98) return;
-          b.classList.add('down');
-          pc98.onKeyDown({ code, key });
-        };
-        const release = () => {
-          if (!b.classList.contains('down')) return;
-          b.classList.remove('down');
-          if (pc98) pc98.onKeyUp({ code, key });
-        };
-        b.addEventListener('mousedown', press);
-        b.addEventListener('mouseup', release);
-        b.addEventListener('mouseleave', release);
-        b.addEventListener('touchstart', press, { passive: false });
-        b.addEventListener('touchend', (ev) => { ev.preventDefault(); release(); }, { passive: false });
-      }
-      r.appendChild(b);
+      const attrs = code === null
+        ? ' data-close="1"'
+        : ` data-code="${code}" data-key="${key === ' ' ? '&#32;' : key}"`;
+      html += `<button class="vk${cls ? ' ' + cls : ''}"${attrs}>${label}</button>`;
     }
-    vkbdEl.appendChild(r);
+    html += '</div>';
   }
+  vkbdEl.innerHTML = html;
+
+  let downBtn = null;
+  const press = (ev) => {
+    const b = ev.target;
+    if (!b || !b.getAttribute) return;
+    if (b.getAttribute('data-close')) { ev.preventDefault(); toggleVirtualKeyboard(false); return; }
+    const code = b.getAttribute('data-code');
+    if (!code) return;
+    ev.preventDefault();
+    if (downBtn) release();
+    downBtn = b;
+    b.className = b.className + ' down';
+    if (pc98) pc98.onKeyDown({ code, key: b.getAttribute('data-key') });
+  };
+  const release = () => {
+    const b = downBtn;
+    if (!b) return;
+    downBtn = null;
+    b.className = b.className.replace(' down', '');
+    if (pc98) pc98.onKeyUp({ code: b.getAttribute('data-code'), key: b.getAttribute('data-key') });
+  };
+  vkbdEl.addEventListener('mousedown', press);
+  vkbdEl.addEventListener('mouseup', release);
+  vkbdEl.addEventListener('mouseleave', release);
+  vkbdEl.addEventListener('touchstart', press, { passive: false });
+  vkbdEl.addEventListener('touchend', (ev) => { ev.preventDefault(); release(); }, { passive: false });
 }
 
 function toggleVirtualKeyboard(show) {
   const visible = !vkbdEl.classList.contains('hidden');
   const next = show === undefined ? !visible : show;
+  if (next) buildVirtualKeyboard();
   vkbdEl.classList.toggle('hidden', !next);
   btnKbd.classList.toggle('active', next);
 }
@@ -3613,12 +3649,16 @@ setInterval(pollGamepads, GP_POLL_MS);
 // PC98._loop reschedules itself with requestAnimationFrame. If the host
 // stops delivering animation frames (hidden/offscreen surface) the machine
 // would freeze; drive the loop from a timer while that is the case.
+// The threshold is deliberately far above a slow frame: on hardware a frame
+// can legitimately take a while, and kicking the loop from the timer while
+// rAF is merely slow would run the machine twice per frame.
 setInterval(() => {
   if (!pc98 || !pc98._running || paused) return;
-  if (performance.now() - pc98._lastTime < 120) return;
+  if (performance.now() - pc98._lastTime < 1000) return;
   if (pc98._rafId) { cancelAnimationFrame(pc98._rafId); pc98._rafId = null; }
+  diag('rAF stalled, driving the loop from a timer');
   pc98._loop();
-}, 16);
+}, 250);
 
 // ---- status indicator ----
 setInterval(() => {
@@ -3629,16 +3669,32 @@ setInterval(() => {
 }, 100);
 
 // ---- boot ----
+// Hand control back to the runtime so it can paint. The shell populates the
+// DOM and runs page scripts before its first paint, so anything done
+// synchronously here — or in one unbroken chain of microtasks — happens
+// while the screen is still blank. Yielding through a timer (and a frame
+// when one is offered) lets "起動中..." and the panel appear first, which
+// also makes a slow stage visible instead of looking like a hang.
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    try { requestAnimationFrame(() => setTimeout(finish, 0)); } catch (_) {}
+    setTimeout(finish, 120);
+  });
+}
+
 async function main() {
   diag('main() start');
   layout();
   buildDiskPanel();
-  buildVirtualKeyboard();
   refreshDiskPanel();
-  diag('UI built');
+  diag('panel built');
+
+  overlayMsg.textContent = 'フォント読み込み中...';
+  await yieldToPaint();
 
   try {
-    overlayMsg.textContent = 'フォント読み込み中...';
     Video.cgrom = new Uint8Array(await fetchBytes('cgrom.bin'));
   } catch (err) {
     // Not fatal: video.js falls back to rasterising glyphs with a canvas font.
@@ -3647,14 +3703,26 @@ async function main() {
   }
 
   overlayMsg.textContent = 'ディスク読み込み中...';
+  await yieldToPaint();
+
+  // Only FDD1 is needed to boot. Disk B goes in FDD2 in the background so
+  // the machine starts after ~1.2 MB of I/O instead of ~2.5 MB.
   await loadDisk(BOOT_FDD1);
-  await loadDisk(BOOT_FDD2);
   mounted[0] = BOOT_FDD1;
-  mounted[1] = BOOT_FDD2;
   refreshDiskPanel();
 
+  await yieldToPaint();
   bootMachine();
   diag('machine running');
+
+  loadDisk(BOOT_FDD2).then(() => {
+    if (mounted[1] === null) {
+      mounted[1] = BOOT_FDD2;
+      if (pc98) pc98.mountDisk(1, diskCache[BOOT_FDD2]);
+      refreshDiskPanel();
+      diag('FDD2 ready');
+    }
+  }, (err) => diag('FDD2 preload failed: ' + (err && err.message ? err.message : err)));
 }
 
 main().catch((err) => fatal('main', err));

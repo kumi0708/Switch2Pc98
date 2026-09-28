@@ -54,6 +54,10 @@ class PC98 {
         video.writeGVRAM(addr, val);
         return;
       }
+      // Text VRAM (codes at 0xA0000, attributes at 0xA2000) is plain RAM, so
+      // mark the frame dirty here — `Video.render` skips untouched frames and
+      // would otherwise never notice a text-only update.
+      if (addr >= 0xA0000 && addr < 0xA4000) video._dirty = true;
       origWrite8(addr, val);
     };
 
