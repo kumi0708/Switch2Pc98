@@ -2,14 +2,14 @@
 
 // PC-98 System Integration
 class PC98 {
-  constructor(canvas) {
+  constructor(canvas, presenter) {
     this.mem   = new Memory();
     this.io    = new IO();
     this.cpu   = new CPU(this.mem, this.io);
     this.pic   = new PIC(this.io, this.cpu);
     this.pit   = new PIT(this.io, this.pic);
     this.fdc   = new FDC(this.io, this.pic, this.mem);
-    this.video = new Video(canvas, this.mem, this.io);
+    this.video = new Video(canvas, this.mem, this.io, presenter);
     this.kbd   = new Keyboard(this.io, this.pic);
     this.mouse = new Mouse(this.io);
     this.bios  = new BIOS(this.mem, this.io, this.cpu, this.fdc, this.kbd, this.video);

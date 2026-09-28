@@ -8,11 +8,22 @@ class Video {
   // Optional pre-rendered CG ROM bytes (Uint8Array); null = rasterize via canvas font
   static cgrom = null;
 
-  constructor(canvas, mem, io) {
+  // `presenter` (optional) takes over putting the composed framebuffer on
+  // screen: it receives the 640x400 RGBA bytes each frame. Supplied when the
+  // host needs a presentation path other than Canvas 2D — a canvas can only
+  // ever have one context type, so when a presenter is given this class must
+  // not ask for a 2D context at all.
+  constructor(canvas, mem, io, presenter) {
     this.mem    = mem;
     this.canvas = canvas;
-    this.ctx    = canvas.getContext('2d');
-    this.imgData= this.ctx.createImageData(640, 400);
+    this.presenter = presenter || null;
+    if (this.presenter) {
+      this.ctx     = null;
+      this.imgData = { data: new Uint8ClampedArray(640 * 400 * 4), width: 640, height: 400 };
+    } else {
+      this.ctx     = canvas.getContext('2d');
+      this.imgData = this.ctx.createImageData(640, 400);
+    }
 
     // GVRAM: 4 planes × 2 pages. Each page is a 32KB window (640×400/8 = 32000
     // bytes used); page 1 lives at offset 0x8000 within each plane array.
@@ -475,7 +486,8 @@ class Video {
       this._renderText(pixels);
     }
 
-    this.ctx.putImageData(this.imgData, 0, 0);
+    if (this.presenter) this.presenter(this.imgData);
+    else this.ctx.putImageData(this.imgData, 0, 0);
     this._dirty = false;
   }
 

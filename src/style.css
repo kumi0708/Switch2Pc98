@@ -101,6 +101,8 @@ html, body {
   position: fixed;
   right: 0;
   top: 0;
+  /* Above the canvas, which now spans the whole viewport. */
+  z-index: 10;
   width: 160px;
   height: 100%;
   background: #1c1c2e;
