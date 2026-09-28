@@ -555,16 +555,18 @@ setInterval(pollGamepads, GP_POLL_MS);
 // PC98._loop reschedules itself with requestAnimationFrame. If the host
 // stops delivering animation frames (hidden/offscreen surface) the machine
 // would freeze; drive the loop from a timer while that is the case.
-// The threshold is deliberately far above a slow frame: on hardware a frame
-// can legitimately take a while, and kicking the loop from the timer while
-// rAF is merely slow would run the machine twice per frame.
+// Ticks at frame rate so that a host which never delivers animation frames
+// (an embedded/background view, for instance) still runs the machine at
+// full speed rather than at the watchdog's own rate. The threshold stays
+// far above any plausible frame time — the timer callback cannot run while
+// a frame is in progress, so once rAF is alive `_lastTime` is always fresh
+// and this never double-drives the loop.
 setInterval(() => {
   if (!pc98 || !pc98._running || paused) return;
-  if (performance.now() - pc98._lastTime < 1000) return;
+  if (performance.now() - pc98._lastTime < 250) return;
   if (pc98._rafId) { cancelAnimationFrame(pc98._rafId); pc98._rafId = null; }
-  diag('rAF stalled, driving the loop from a timer');
   pc98._loop();
-}, 250);
+}, 16);
 
 // ---- status indicator ----
 // Emulated clock rate matters more than frame rate here: the PC-98 ran at
