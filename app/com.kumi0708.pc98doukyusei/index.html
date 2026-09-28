@@ -88,6 +88,21 @@ html, body {
 }
 .fdd-led.hidden { display: none; }
 
+/* Diagnostics sit over the screen area, not in the panel: the panel runs out
+   of vertical room on a 720px screen and silently clips whatever lands last. */
+.geom {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 3px 8px;
+  background: #101820;
+  border: 1px solid #2c3a48;
+  color: #9ab;
+  font-size: 13px;
+  line-height: 16px;
+  white-space: pre;
+}
+
 .toast {
   position: absolute;
   left: 20px;
@@ -208,15 +223,6 @@ html, body {
 #cpu-speed { color: #8fd; }
 /* The geometry readout is longer than the panel is wide, and the shared
    status-span rule clips anything that overflows — let this one wrap. */
-/* Specificity has to beat `#status-bar > span`, which sets nowrap/clip. */
-#status-bar > span#geom {
-  color: #9a9;
-  white-space: normal;
-  overflow: visible;
-  line-height: 13px;
-  min-height: 0;
-  word-break: break-all;
-}
 #fdd-activity { color: #ffaa00; }
 
 /* ---- virtual keyboard overlay ---- */
@@ -268,6 +274,7 @@ html, body {
       <div class="overlay-msg" id="overlay-msg">起動中...</div>
     </div>
     <div id="fdd-led" class="fdd-led hidden">● FDD</div>
+    <div id="geom" class="geom"></div>
     <div id="toast" class="toast hidden"></div>
     <div id="vkbd" class="vkbd hidden"></div>
   </div>
@@ -306,7 +313,6 @@ html, body {
       <span id="status-text">待機中</span>
       <span id="cpu-speed"></span>
       <span id="fdd-activity"></span>
-      <span id="geom"></span>
     </div>
   </div>
 </div>
