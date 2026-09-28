@@ -70,6 +70,34 @@ let paintCount = 0;
 const repaintHook = (typeof globalThis !== 'undefined'
   && typeof globalThis.__swbRepaint === 'function')
   ? globalThis.__swbRepaint : null;
+
+// The host publishes its current display mode. In `fullscreen-canvas` it
+// paints the canvas straight to the screen every frame, which is the only
+// path that keeps an animating canvas live; everywhere else the canvas is
+// baked into a cache that canvas drawing does not invalidate.
+function isFullscreenCanvas() {
+  return typeof globalThis !== 'undefined'
+    && globalThis.__swbBrowserMode === 'fullscreen-canvas';
+}
+
+// Ask the host to promote the emulator canvas to fullscreen. Absent outside
+// the runtime, and a no-op if the request is refused — the repaint-hook
+// fallback above still runs in that case.
+async function requestCanvasFullscreen() {
+  try {
+    if (typeof canvas.requestFullscreen === 'function') {
+      await canvas.requestFullscreen();
+    } else if (typeof globalThis.__swbRequestFullscreenCanvas === 'function') {
+      await globalThis.__swbRequestFullscreenCanvas();
+    } else {
+      diag('no fullscreen-canvas API on this host');
+      return;
+    }
+    diag('fullscreen-canvas requested, mode=' + globalThis.__swbBrowserMode);
+  } catch (err) {
+    diag('fullscreen-canvas request failed: ' + (err && err.message ? err.message : err));
+  }
+}
 const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
@@ -255,9 +283,10 @@ function bootMachine() {
     // tree, and drawing into a canvas does not invalidate that cache — on
     // the console the canvas was composited once and every later frame was
     // dropped, which is why a self-test pattern drawn before boot stayed on
-    // screen forever. `__swbRepaint` is the host's page-callable hard
-    // repaint; call it only on frames that actually changed.
-    if (repaintHook) repaintHook();
+    // screen forever. Fullscreen-canvas mode blits the canvas every frame on
+    // its own, so the hard repaint is only the fallback for when the mode
+    // could not be entered, and only on frames that actually changed.
+    if (repaintHook && !isFullscreenCanvas()) repaintHook();
   };
   pc98.onFPS = (fps) => { lastFps = fps; };
   pc98._speedMultiplier = 1.0;
@@ -612,7 +641,9 @@ setInterval(() => {
   // P = frames actually pushed to the canvas. If this keeps climbing while
   // the screen stays black, the emulator is painting and the display path
   // is losing it; if it stops, the machine stopped changing the screen.
-  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}`;
+  const mode = (typeof globalThis !== 'undefined' && globalThis.__swbBrowserMode) || '';
+  const modeTag = mode ? ' ' + String(mode).replace('fullscreen-', 'FS-') : '';
+  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}${modeTag}`;
   fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
 }, 500);
 
@@ -722,6 +753,8 @@ async function main() {
 
   bootMachine();
   diag('machine running');
+
+  await requestCanvasFullscreen();
 }
 
 main().catch((err) => fatal('main', err));

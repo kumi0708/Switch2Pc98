@@ -27,6 +27,8 @@ html, body {
   position: relative;
   flex: 1;
   height: 100%;
+  /* Leave room for the now-fixed panel. */
+  margin-right: 160px;
   background: #000;
   display: flex;
   align-items: center;
@@ -92,7 +94,13 @@ html, body {
 .toast.hidden { display: none; }
 
 /* ---- side panel ---- */
+/* Fixed rather than a flex child: in the host's fullscreen-canvas mode only
+   the canvas and fixed-position elements are painted, so a panel in normal
+   flow would disappear the moment the emulator goes fullscreen. */
 #panel {
+  position: fixed;
+  right: 0;
+  top: 0;
   width: 160px;
   height: 100%;
   background: #1c1c2e;

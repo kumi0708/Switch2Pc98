@@ -11,7 +11,10 @@
 <body>
 <div id="app">
   <div id="screen-container">
-    <canvas id="screen" width="640" height="400"></canvas>
+    <!-- `data-fullscreen-live` tells the host that this canvas drives its own
+         render loop, so entering fullscreen-canvas mode must NOT re-run the
+         page scripts (that would restart the emulator and wipe its state). -->
+    <canvas id="screen" width="640" height="400" data-fullscreen-live></canvas>
     <div id="overlay" class="overlay">
       <div class="overlay-msg" id="overlay-msg">起動中...</div>
     </div>
