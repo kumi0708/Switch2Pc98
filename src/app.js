@@ -655,9 +655,9 @@ setInterval(() => {
   // is losing it; if it stops, the machine stopped changing the screen.
   syncViewport();
   const r = glPresenter && glPresenter.rect ? glPresenter.rect() : null;
-  geomEl.textContent = `vp${window.innerWidth || 0}x${window.innerHeight || 0}`
-    + ` b${canvas.width}x${canvas.height}`
-    + (r ? ` g${r[0]},${r[1]},${r[2]}x${r[3]}` : ' 2d');
+  geomEl.textContent = `vp ${window.innerWidth || 0}x${window.innerHeight || 0}`
+    + ` / buf ${canvas.width}x${canvas.height}`
+    + (r ? ` / img ${r[2]}x${r[3]} @${r[0]},${r[1]}` : ' / 2d');
   const mode = (typeof globalThis !== 'undefined' && globalThis.__swbBrowserMode) || '';
   const modeTag = mode ? ' ' + String(mode).replace('fullscreen-', 'FS-') : '';
   fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}${modeTag}`;

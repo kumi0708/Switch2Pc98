@@ -199,7 +199,17 @@ html, body {
   overflow: hidden;
 }
 #cpu-speed { color: #8fd; }
-#geom { color: #9a9; }
+/* The geometry readout is longer than the panel is wide, and the shared
+   status-span rule clips anything that overflows — let this one wrap. */
+/* Specificity has to beat `#status-bar > span`, which sets nowrap/clip. */
+#status-bar > span#geom {
+  color: #9a9;
+  white-space: normal;
+  overflow: visible;
+  line-height: 13px;
+  min-height: 0;
+  word-break: break-all;
+}
 #fdd-activity { color: #ffaa00; }
 
 /* ---- virtual keyboard overlay ---- */
