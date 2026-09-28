@@ -199,6 +199,7 @@ html, body {
   overflow: hidden;
 }
 #cpu-speed { color: #8fd; }
+#geom { color: #9a9; }
 #fdd-activity { color: #ffaa00; }
 
 /* ---- virtual keyboard overlay ---- */

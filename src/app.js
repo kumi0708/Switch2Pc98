@@ -58,6 +58,7 @@ const statusText = document.getElementById('status-text');
 const cpuSpeed   = document.getElementById('cpu-speed');
 const fddAct     = document.getElementById('fdd-activity');
 const fddLed     = document.getElementById('fdd-led');
+const geomEl     = document.getElementById('geom');
 const driveLabel = [document.getElementById('fdd1-label'), document.getElementById('fdd2-label')];
 const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementById('fdd2-grid')];
 
@@ -615,6 +616,23 @@ setInterval(() => {
 // "9.8 MHz" means it is keeping up. CS:IP shows whether the CPU is
 // actually advancing or spinning in one place.
 let lastCycles = 0, lastCycleT = 0;
+let lastVpW = 0, lastVpH = 0;
+
+function syncViewport() {
+  const w = window.innerWidth || 0;
+  const h = window.innerHeight || 0;
+  if (!w || !h || (w === lastVpW && h === lastVpH)) return;
+  lastVpW = w; lastVpH = h;
+  if (glPresenter) {
+    canvas.width = w;
+    canvas.height = h;
+    glPresenter.resize();
+  }
+  layout();
+  if (pc98) pc98.video._dirty = true;
+  diag('viewport now ' + w + 'x' + h);
+}
+try { window.addEventListener('resize', syncViewport); } catch (_) {}
 setInterval(() => {
   if (!pc98) {
     cpuSpeed.textContent = '';
@@ -635,6 +653,11 @@ setInterval(() => {
   // P = frames actually pushed to the canvas. If this keeps climbing while
   // the screen stays black, the emulator is painting and the display path
   // is losing it; if it stops, the machine stopped changing the screen.
+  syncViewport();
+  const r = glPresenter && glPresenter.rect ? glPresenter.rect() : null;
+  geomEl.textContent = `vp${window.innerWidth || 0}x${window.innerHeight || 0}`
+    + ` b${canvas.width}x${canvas.height}`
+    + (r ? ` g${r[0]},${r[1]},${r[2]}x${r[3]}` : ' 2d');
   const mode = (typeof globalThis !== 'undefined' && globalThis.__swbBrowserMode) || '';
   const modeTag = mode ? ' ' + String(mode).replace('fullscreen-', 'FS-') : '';
   fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}${modeTag}`;
@@ -776,7 +799,7 @@ function createGLPresenter() {
   }
 
   diag('WebGL presenter ready (' + bw + 'x' + bh + ')');
-  return { present, resize };
+  return { present, resize, rect: () => [vx, vy, vw, vh] };
 }
 
 // ---- presentation self-test ----
