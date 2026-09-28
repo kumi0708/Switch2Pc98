@@ -9,6 +9,12 @@
 // reaches the on-device log file, so every boot step is reported with
 // console.error and mirrored to the on-screen overlay. If the app ever comes
 // up blank again, the last `[pc98]` line in the log says how far it got.
+// Flip to true to bring back the startup test pattern and the on-screen
+// counters (emulated clock, CS:IP, painted frames, viewport/buffer/
+// letterbox geometry). They are how the blank-screen and zoomed-crop
+// faults were found, so they stay in the build, just idle.
+const DEBUG = false;
+
 const BOOT_LOG = [];
 const BOOT_T0 = Date.now();
 function diag(msg) {
@@ -649,13 +655,17 @@ setInterval(() => {
   // the screen stays black, the emulator is painting and the display path
   // is losing it; if it stops, the machine stopped changing the screen.
   syncViewport();
-  const r = glPresenter && glPresenter.rect ? glPresenter.rect() : null;
-  geomEl.textContent = `vp ${window.innerWidth || 0}x${window.innerHeight || 0}`
-    + ` / buf ${canvas.width}x${canvas.height}`
-    + (r ? ` / img ${r[2]}x${r[3]} @${r[0]},${r[1]}` : ' / 2d');
+  if (DEBUG) {
+    const r = glPresenter && glPresenter.rect ? glPresenter.rect() : null;
+    geomEl.textContent = `vp ${window.innerWidth || 0}x${window.innerHeight || 0}`
+      + ` / buf ${canvas.width}x${canvas.height}`
+      + (r ? ` / img ${r[2]}x${r[3]} @${r[0]},${r[1]}` : ' / 2d');
+  }
   const mode = (typeof globalThis !== 'undefined' && globalThis.__swbBrowserMode) || '';
   const modeTag = mode ? ' ' + String(mode).replace('fullscreen-', 'FS-') : '';
-  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}${modeTag}`;
+  fddAct.textContent = DEBUG
+    ? `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}${repaintHook ? ' R' : ''}${modeTag}`
+    : '';
   fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
 }, 500);
 
@@ -801,7 +811,7 @@ function createGLPresenter() {
 // dropped. Bars that visibly slide prove the path stays live. It also runs
 // through the real presenter, so it tests what the emulator will use.
 // Set SELFTEST_MS to 0 to skip it.
-const SELFTEST_MS = 3000;
+const SELFTEST_MS = DEBUG ? 3000 : 0;
 
 function selfTestFrame(bytes, phase) {
   const BARS = [

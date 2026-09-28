@@ -95,6 +95,8 @@ html, body {
   line-height: 16px;
   white-space: pre;
 }
+/* Nothing to say (diagnostics off) means no box. */
+.geom:empty { display: none; }
 
 .toast {
   position: absolute;
