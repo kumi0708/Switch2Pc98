@@ -63,6 +63,7 @@ const driveGrid  = [document.getElementById('fdd1-grid'), document.getElementByI
 let pc98 = null;
 let paused = false;
 let lastFps = 0;
+let paintCount = 0;
 const diskCache = {};          // letter -> FDI
 const mounted = [null, null];  // letter per drive
 let toastTimer = null;
@@ -233,6 +234,13 @@ function bootMachine() {
   if (pc98) pc98.stop();
   pc98 = new PC98(canvas);
   installMouseDrip(pc98.mouse);
+  // Count the frames Video.render actually pushes to the canvas (it skips
+  // frames where nothing changed), so the panel can distinguish "nothing is
+  // being drawn" from "drawing is not reaching the screen".
+  paintCount = 0;
+  const video = pc98.video;
+  const origRender = video.render.bind(video);
+  video.render = () => { const dirty = video._dirty; origRender(); if (dirty) paintCount++; };
   pc98.onFPS = (fps) => { lastFps = fps; };
   pc98._speedMultiplier = 1.0;
   for (let d = 0; d < 2; d++) {
@@ -581,7 +589,10 @@ setInterval(() => {
   lastCycleT = now;
 
   const hex = (n, w) => n.toString(16).toUpperCase().padStart(w, '0');
-  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)}`;
+  // P = frames actually pushed to the canvas. If this keeps climbing while
+  // the screen stays black, the emulator is painting and the display path
+  // is losing it; if it stops, the machine stopped changing the screen.
+  fddAct.textContent = `${hex(pc98.cpu.cs, 4)}:${hex(pc98.cpu.ip, 4)} P:${paintCount}`;
   fddLed.classList.toggle('hidden', now - (pc98.video._fddActivity || 0) >= 700);
 }, 500);
 
@@ -599,6 +610,60 @@ function yieldToPaint() {
     try { requestAnimationFrame(() => setTimeout(finish, 0)); } catch (_) {}
     setTimeout(finish, 120);
   });
+}
+
+// ---- canvas self-test ----
+// The console reports ~9 MHz of emulated CPU with a black screen, so the
+// machine is running and the question is whether anything the emulator
+// paints reaches the display at all. Draw two halves with the two
+// different Canvas 2D paths before booting: the top with fillRect/fillText
+// (ordinary drawing) and the bottom with putImageData (what Video.render
+// uses). Whichever half is missing on the console names the broken path.
+// Set SELFTEST_MS to 0 to skip it.
+const SELFTEST_MS = 6000;
+
+function canvasSelfTest() {
+  if (SELFTEST_MS <= 0) return Promise.resolve();
+  const ctx = canvas.getContext('2d');
+  const BARS = ['#ffffff', '#ffff00', '#00ffff', '#00ff00',
+                '#ff00ff', '#ff0000', '#0000ff', '#808080'];
+  // The loading overlay sits on top of the canvas at 82% black, which would
+  // dim the very thing being judged by eye.
+  overlay.classList.add('hidden');
+
+  ctx.fillStyle = '#001030';
+  ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+
+  // Top half: plain fillRect bars.
+  const bw = SCREEN_W / BARS.length;
+  for (let i = 0; i < BARS.length; i++) {
+    ctx.fillStyle = BARS[i];
+    ctx.fillRect(Math.round(i * bw), 40, Math.ceil(bw), 120);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '20px monospace';
+  ctx.fillText('1) fillRect', 8, 30);
+
+  // Bottom half: the same bars written through putImageData.
+  const img = ctx.createImageData(SCREEN_W, 120);
+  const px = new Uint32Array(img.data.buffer);
+  for (let y = 0; y < 120; y++) {
+    for (let x = 0; x < SCREEN_W; x++) {
+      const c = BARS[Math.min(BARS.length - 1, Math.floor(x / bw))];
+      const r = parseInt(c.slice(1, 3), 16);
+      const g = parseInt(c.slice(3, 5), 16);
+      const b = parseInt(c.slice(5, 7), 16);
+      px[y * SCREEN_W + x] = 0xFF000000 | (b << 16) | (g << 8) | r;  // ABGR
+    }
+  }
+  ctx.putImageData(img, 0, 240);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('2) putImageData', 8, 230);
+  ctx.fillText('both bars visible = canvas OK', 8, 390);
+
+  diag('self-test drawn');
+  setStatus('自己テスト表示中');
+  return new Promise((resolve) => setTimeout(resolve, SELFTEST_MS));
 }
 
 async function main() {
@@ -622,24 +687,21 @@ async function main() {
   overlayMsg.textContent = 'ディスク読み込み中...';
   await yieldToPaint();
 
-  // Only FDD1 is needed to boot. Disk B goes in FDD2 in the background so
-  // the machine starts after ~1.2 MB of I/O instead of ~2.5 MB.
+  // Both disks go in before the machine starts. Booting with FDD2 still
+  // empty and filling it in afterwards saved ~1.2 MB of startup I/O, but
+  // it also let the game look for disk B before it was there — and the
+  // measured startup cost turned out to be milliseconds, not seconds.
   await loadDisk(BOOT_FDD1);
+  await loadDisk(BOOT_FDD2);
   mounted[0] = BOOT_FDD1;
+  mounted[1] = BOOT_FDD2;
   refreshDiskPanel();
 
   await yieldToPaint();
+  await canvasSelfTest();
+
   bootMachine();
   diag('machine running');
-
-  loadDisk(BOOT_FDD2).then(() => {
-    if (mounted[1] === null) {
-      mounted[1] = BOOT_FDD2;
-      if (pc98) pc98.mountDisk(1, diskCache[BOOT_FDD2]);
-      refreshDiskPanel();
-      diag('FDD2 ready');
-    }
-  }, (err) => diag('FDD2 preload failed: ' + (err && err.message ? err.message : err)));
 }
 
 main().catch((err) => fatal('main', err));
